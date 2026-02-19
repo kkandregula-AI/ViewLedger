@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback } from "react";
 import dayjs from "dayjs";
 import { initDB, insertTransaction, getAllTransactions, deleteTransaction, getCategorySummary, getMonthlyTotals, getTransactionCount } from "./lib/db";
 import { CATEGORIES, CATEGORY_NAMES, getCategoryData } from "./lib/categories";
-import { exportTransactionsPDF, exportCategoryPDF, exportDailySummaryPDF } from "./lib/pdfExport";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 // ─────────────────────────────────────────────
@@ -399,62 +398,73 @@ function ChartsScreen() {
 // ─────────────────────────────────────────────
 // EXPORT SCREEN
 // ─────────────────────────────────────────────
-function ExportScreen({ transactions }) {
+function ExportScreen({ transactions, onBack }) {
   const [exporting, setExporting] = useState(null);
 
+  const totalCredit = transactions.filter(t => t.type === "credit").reduce((s,t) => s+t.amount, 0);
+  const totalDebit  = transactions.filter(t => t.type === "debit").reduce((s,t) => s+t.amount, 0);
+  const thisMonth   = transactions.filter(t => t.date.startsWith(dayjs().format("YYYY-MM"))).length;
+
   async function handleExport(type) {
-    if (transactions.length === 0) return alert("No transactions to export");
+    if (transactions.length === 0) return alert("No transactions to export yet");
     setExporting(type);
     try {
-      if (type === "all_pdf") await exportTransactionsPDF(transactions, "All Transactions");
-      else if (type === "daily_pdf") await exportDailySummaryPDF(transactions);
-      else if (type === "cat_pdf") {
-        const cats = await getCategorySummary(30);
-        await exportCategoryPDF(cats, 30);
-      }
-      else if (type === "csv") {
+      if (type === "csv") {
         const headers = ["Date","Time","Type","Amount","Bank","Merchant","Category","Mode","Balance"];
         const rows = transactions.map(tx => [
           dayjs(tx.date).format("DD-MM-YYYY"),
           dayjs(tx.date).format("HH:mm"),
-          tx.type, Number(tx.amount).toFixed(2),
-          tx.bank||"", tx.merchant||"", tx.category||"",
-          tx.paymentMode||"", tx.balance ? Number(tx.balance).toFixed(2) : "",
+          tx.type,
+          Number(tx.amount).toFixed(2),
+          tx.bank || "",
+          tx.merchant || "",
+          tx.category || "",
+          tx.paymentMode || "",
+          tx.balance ? Number(tx.balance).toFixed(2) : "",
         ]);
         const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
-        const blob = new Blob(["\uFEFF" + csv], { type:"text/csv;charset=utf-8;" });
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url; a.download = `sms_ledger_${dayjs().format("YYYY-MM-DD")}.csv`;
-        a.click(); URL.revokeObjectURL(url);
-      }
-      else if (type === "json") {
+        a.href = url;
+        a.download = `sms_ledger_${dayjs().format("YYYY-MM-DD")}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else if (type === "json") {
         const json = JSON.stringify({ exportedAt: new Date().toISOString(), count: transactions.length, transactions }, null, 2);
-        const blob = new Blob([json], { type:"application/json" });
+        const blob = new Blob([json], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url; a.download = `sms_ledger_backup_${dayjs().format("YYYY-MM-DD")}.json`;
-        a.click(); URL.revokeObjectURL(url);
+        a.href = url;
+        a.download = `sms_ledger_backup_${dayjs().format("YYYY-MM-DD")}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
       }
-    } catch(e) { console.error('Export error:', e); alert("Export failed: " + (e.message || 'Unknown error. Check console for details.')); }
+    } catch(e) {
+      alert("Export failed: " + (e.message || "Unknown error"));
+    }
     setExporting(null);
   }
 
-  const totalCredit = transactions.filter(t => t.type==="credit").reduce((s,t) => s+t.amount,0);
-  const totalDebit = transactions.filter(t => t.type==="debit").reduce((s,t) => s+t.amount,0);
-
-  function ExportBtn({ id, icon, title, subtitle, color="#3b82f6", tag }) {
+  function ExportBtn({ id, icon, title, subtitle, color }) {
+    const isLoading = exporting === id;
     return (
-      <button onClick={() => handleExport(id)} disabled={exporting !== null} style={{ ...styles.exportCard, opacity: exporting !== null ? 0.5 : 1 }}>
-        <div style={{ ...styles.exportIcon, background: color+"18" }}>
-          {exporting === id ? <span style={{ fontSize:16 }}>⏳</span> : <span style={{ fontSize:22 }}>{icon}</span>}
+      <button
+        onClick={() => handleExport(id)}
+        disabled={exporting !== null}
+        style={{
+          width:"100%", background:"rgba(255,255,255,0.03)",
+          border:"1px solid rgba(255,255,255,0.08)", borderRadius:14,
+          padding:14, display:"flex", alignItems:"center", gap:14,
+          marginBottom:10, cursor:"pointer", opacity: exporting !== null ? 0.5 : 1,
+        }}
+      >
+        <div style={{ width:46, height:46, borderRadius:12, background: color+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:22 }}>
+          {isLoading ? "⏳" : icon}
         </div>
         <div style={{ flex:1, textAlign:"left" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-            <span style={styles.exportTitle}>{title}</span>
-            {tag && <span style={{ ...styles.exportTag, background:color+"20", color }}>{tag}</span>}
-          </div>
-          <div style={styles.exportSubtitle}>{subtitle}</div>
+          <div style={{ fontSize:14, fontWeight:600, color:"#e8e4dc", marginBottom:3 }}>{title}</div>
+          <div style={{ fontSize:12, color:"#6b7280", lineHeight:1.5 }}>{subtitle}</div>
         </div>
         <span style={{ color:"#4b5563", fontSize:16 }}>→</span>
       </button>
@@ -462,50 +472,57 @@ function ExportScreen({ transactions }) {
   }
 
   return (
-    <div style={styles.screen}>
+    <div style={{ padding:"16px 16px 100px" }}>
+
+      {/* Back Button */}
+      <button onClick={onBack} style={{ display:"flex", alignItems:"center", gap:8, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:"10px 16px", color:"#e8e4dc", cursor:"pointer", fontSize:14, marginBottom:16, width:"100%" }}>
+        <span style={{ fontSize:18 }}>←</span>
+        <span style={{ fontWeight:600 }}>Back to Ledger</span>
+      </button>
+
       {/* Stats */}
-      <div style={styles.statsCard}>
-        <div style={styles.statsTitle}>📦 Your Data</div>
-        <div style={styles.statsGrid}>
+      <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:16, padding:16, marginBottom:16, border:"1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ fontSize:13, fontWeight:600, color:"#9ca3af", marginBottom:14 }}>📦 Your Data</div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:12 }}>
           {[
-            { label:"Transactions", val: transactions.length, color:"#e8e4dc" },
-            { label:"This Month", val: transactions.filter(t => t.date.startsWith(dayjs().format("YYYY-MM"))).length, color:"#e8e4dc" },
-            { label:"Total Income", val: fmtShort(totalCredit), color:"#10b981" },
-            { label:"Total Spent", val: fmtShort(totalDebit), color:"#ef4444" },
+            { label:"Total Transactions", val: transactions.length,  color:"#e8e4dc" },
+            { label:"This Month",         val: thisMonth,             color:"#e8e4dc" },
+            { label:"Total Income",       val: fmtShort(totalCredit), color:"#10b981" },
+            { label:"Total Spent",        val: fmtShort(totalDebit),  color:"#ef4444" },
           ].map(s => (
-            <div key={s.label} style={styles.statItem}>
-              <div style={{ ...styles.statValue, color:s.color }}>{s.val}</div>
-              <div style={styles.statLabel}>{s.label}</div>
+            <div key={s.label} style={{ width:"calc(50% - 6px)", background:"rgba(255,255,255,0.03)", borderRadius:10, padding:12 }}>
+              <div style={{ fontSize:16, fontWeight:"bold", color:s.color }}>{s.val}</div>
+              <div style={{ fontSize:10, color:"#6b7280", marginTop:2, textTransform:"uppercase", letterSpacing:0.5 }}>{s.label}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* PDF */}
-      <div style={styles.sectionLabel}>📄 PDF EXPORTS</div>
-      <ExportBtn id="all_pdf"   icon="📊" title="All Transactions (PDF)"  subtitle="Full ledger — perfect for printing or sharing" color="#ef4444" tag="PDF" />
-      <ExportBtn id="daily_pdf" icon="📅" title="Daily Summary (PDF)"      subtitle="One row per day with income, spent and net"     color="#ef4444" tag="PDF" />
-      <ExportBtn id="cat_pdf"   icon="🗂" title="Category Report (PDF)"    subtitle="Spending breakdown — last 30 days"              color="#ef4444" tag="PDF" />
+      {/* Export Buttons */}
+      <div style={{ fontSize:10, color:"#4b5563", textTransform:"uppercase", letterSpacing:1.2, marginBottom:10 }}>📋 EXPORT YOUR DATA</div>
 
-      {/* CSV */}
-      <div style={[styles.sectionLabel, { marginTop:16 }]}>📋 CSV / OTHER</div>
-      <ExportBtn id="csv"  icon="📋" title="All Transactions (CSV)"  subtitle="Open in Excel or Google Sheets" color="#10b981" tag="CSV" />
-      <ExportBtn id="json" icon="💾" title="Full Backup (JSON)"       subtitle="Backup all data — restore anytime"  color="#6b7280" tag="Backup" />
+      <ExportBtn id="csv"  icon="📊" title="All Transactions (CSV)"   subtitle="Download and open in Excel, Numbers or Google Sheets" color="#10b981" />
+      <ExportBtn id="json" icon="💾" title="Full Backup (JSON)"        subtitle="Complete backup — save and restore your data anytime" color="#6b7280" />
 
-      <div style={styles.tipsCard}>
-        <div style={{ fontSize:13, fontWeight:600, color:"#e8e4dc", marginBottom:8 }}>💡 On iPhone</div>
-        {["PDF — tap Download → tap the file → Share → Save to Files or print",
-          "CSV — tap Download → open in Numbers or Google Sheets",
-          "Share any file via AirDrop, WhatsApp or email"].map((tip,i) => (
+      {/* Tips */}
+      <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginTop:8, border:"1px solid rgba(255,255,255,0.07)" }}>
+        <div style={{ fontSize:13, fontWeight:600, color:"#e8e4dc", marginBottom:10 }}>💡 On iPhone</div>
+        {[
+          "CSV → tap Download → open in Numbers or Google Sheets",
+          "JSON → keep as backup, restore your data anytime",
+          "Share files via AirDrop, WhatsApp or email",
+        ].map((tip, i) => (
           <div key={i} style={{ display:"flex", gap:8, marginBottom:6 }}>
             <span style={{ color:"#6b7280" }}>·</span>
             <span style={{ fontSize:12, color:"#6b7280", lineHeight:1.5 }}>{tip}</span>
           </div>
         ))}
       </div>
+
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────
 // MAIN APP
@@ -554,7 +571,7 @@ export default function App() {
       <div style={styles.content}>
         {tab === "ledger" && <LedgerScreen transactions={transactions} onDelete={async id => { await deleteTransaction(id); loadTxns(); }} onRefresh={loadTxns} />}
         {tab === "charts" && <ChartsScreen />}
-        {tab === "export" && <ExportScreen transactions={transactions} />}
+        {tab === "export" && <ExportScreen transactions={transactions} onBack={() => setTab("ledger")} />}
       </div>
 
       {/* Bottom Nav */}
