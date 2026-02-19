@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],
       manifest: {
-        name: "SMS Ledger",
-        short_name: "Ledger",
+        name: "View Ledger",
+        short_name: "View Ledger",
         description: "Personal finance ledger for your family",
         theme_color: "#0a0a0f",
         background_color: "#0a0a0f",

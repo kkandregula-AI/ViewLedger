@@ -34,7 +34,7 @@ export async function exportTransactionsPDF(transactions, title = "All Transacti
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(20);
   doc.setFont("helvetica", "bold");
-  doc.text("SMS Ledger", 14, 16);
+  doc.text("View Ledger", 14, 16);
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(148, 163, 184);
@@ -108,11 +108,11 @@ export async function exportTransactionsPDF(transactions, title = "All Transacti
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
     doc.setFont("helvetica", "normal");
-    doc.text("SMS Ledger — All data stored locally on your device", 14, y);
+    doc.text("View Ledger — All data stored locally on your device", 14, y);
     doc.text("Page " + i + " of " + pageCount, pageW - 14, y, { align: "right" });
   }
 
-  doc.save("sms_ledger_" + dayjs().format("YYYY-MM-DD") + ".pdf");
+  doc.save("view_ledger_" + dayjs().format("YYYY-MM-DD") + ".pdf");
 }
 
 // ─────────────────────────────────────────────
@@ -176,8 +176,8 @@ export async function exportCategoryPDF(categories, days = 30) {
   const y = doc.internal.pageSize.getHeight() - 8;
   doc.setFontSize(7);
   doc.setTextColor(148, 163, 184);
-  doc.text("SMS Ledger — All data stored locally on your device", 14, y);
-  doc.save("sms_ledger_categories_" + dayjs().format("YYYY-MM-DD") + ".pdf");
+  doc.text("View Ledger — All data stored locally on your device", 14, y);
+  doc.save("view_ledger_categories_" + dayjs().format("YYYY-MM-DD") + ".pdf");
 }
 
 // ─────────────────────────────────────────────
@@ -237,6 +237,6 @@ export async function exportDailySummaryPDF(transactions) {
   const y = doc.internal.pageSize.getHeight() - 8;
   doc.setFontSize(7);
   doc.setTextColor(148, 163, 184);
-  doc.text("SMS Ledger — All data stored locally on your device", 14, y);
-  doc.save("sms_ledger_daily_" + dayjs().format("YYYY-MM-DD") + ".pdf");
+  doc.text("View Ledger — All data stored locally on your device", 14, y);
+  doc.save("view_ledger_daily_" + dayjs().format("YYYY-MM-DD") + ".pdf");
 }

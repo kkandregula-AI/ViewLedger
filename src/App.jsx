@@ -725,7 +725,7 @@ function ExportScreen({ transactions, onBack, mode, setMode, selectedWeek, setSe
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `sms_ledger_${filenameSlug()}.csv`;
+        a.download = `view_ledger_${filenameSlug()}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       } else if (type === "json") {
@@ -734,7 +734,7 @@ function ExportScreen({ transactions, onBack, mode, setMode, selectedWeek, setSe
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `sms_ledger_backup_${filenameSlug()}.json`;
+        a.download = `view_ledger_backup_${filenameSlug()}.json`;
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -878,7 +878,7 @@ export default function App() {
   if (!dbReady) return (
     <div style={{ minHeight:"100vh", background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:12 }}>
       <div style={{ fontSize:64 }}>💳</div>
-      <div style={{ fontSize:24, fontWeight:"bold", color:"#e8e4dc" }}>SMS Ledger</div>
+      <div style={{ fontSize:24, fontWeight:"bold", color:"#e8e4dc" }}>View Ledger</div>
       <div style={{ fontSize:14, color:"#6b7280" }}>Loading...</div>
     </div>
   );
@@ -895,7 +895,7 @@ export default function App() {
       {/* Header */}
       <div style={styles.header}>
         <div>
-          <div style={styles.headerTitle}>SMS Ledger</div>
+          <div style={styles.headerTitle}>View Ledger</div>
           <div style={styles.headerSub}>{dayjs().format("DD MMMM YYYY")}</div>
         </div>
         <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add</button>
