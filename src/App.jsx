@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import dayjs from "dayjs";
 import { initDB, insertTransaction, getAllTransactions, deleteTransaction, getCategorySummary, getMonthlyTotals, getTransactionCount } from "./lib/db";
 import { CATEGORIES, CATEGORY_NAMES, getCategoryData } from "./lib/categories";
@@ -398,45 +398,343 @@ function ChartsScreen() {
 // ─────────────────────────────────────────────
 // EXPORT SCREEN
 // ─────────────────────────────────────────────
-function ExportScreen({ transactions, onBack }) {
+
+// ─────────────────────────────────────────────
+// REPORTS SCREEN
+// ─────────────────────────────────────────────
+function ReportsScreen({ transactions, mode, setMode, selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, selectedYear, setSelectedYear, customFrom, setCustomFrom, customTo, setCustomTo }) {
+
+  // ── Filter transactions based on mode
+  const filtered = useMemo(() => {
+    let from, to;
+    if (mode === "weekly") {
+      from = dayjs(selectedWeek).startOf("week");
+      to   = dayjs(selectedWeek).endOf("week");
+    } else if (mode === "monthly") {
+      from = dayjs(selectedMonth + "-01").startOf("month");
+      to   = dayjs(selectedMonth + "-01").endOf("month");
+    } else if (mode === "yearly") {
+      from = dayjs(selectedYear + "-01-01").startOf("year");
+      to   = dayjs(selectedYear + "-12-31").endOf("year");
+    } else {
+      from = dayjs(customFrom).startOf("day");
+      to   = dayjs(customTo).endOf("day");
+    }
+    return transactions.filter(t => {
+      const d = dayjs(t.date);
+      return d.isAfter(from.subtract(1, "ms")) && d.isBefore(to.add(1, "ms"));
+    });
+  }, [transactions, mode, selectedWeek, selectedMonth, selectedYear, customFrom, customTo]);
+
+  const totalCredit = filtered.filter(t => t.type === "credit").reduce((s,t) => s+t.amount, 0);
+  const totalDebit  = filtered.filter(t => t.type === "debit").reduce((s,t) => s+t.amount, 0);
+  const net         = totalCredit - totalDebit;
+
+  // ── Category breakdown
+  const catMap = {};
+  filtered.filter(t => t.type === "debit").forEach(t => {
+    const k = t.category || "Other";
+    if (!catMap[k]) catMap[k] = { name:k, icon:t.categoryIcon||"📌", color:t.categoryColor||"#6b7280", total:0, count:0 };
+    catMap[k].total += t.amount;
+    catMap[k].count += 1;
+  });
+  const cats = Object.values(catMap).sort((a,b) => b.total - a.total);
+
+  // ── Daily breakdown for chart
+  const dayMap = {};
+  filtered.forEach(t => {
+    const d = t.date.split("T")[0];
+    if (!dayMap[d]) dayMap[d] = { date:d, credit:0, debit:0 };
+    if (t.type === "credit") dayMap[d].credit += t.amount;
+    if (t.type === "debit")  dayMap[d].debit  += t.amount;
+  });
+  const chartData = Object.values(dayMap).sort((a,b) => a.date.localeCompare(b.date)).map(d => ({
+    ...d,
+    label: mode === "yearly" ? dayjs(d.date).format("MMM") : dayjs(d.date).format("DD"),
+  }));
+
+  // ── Week options (last 8 weeks)
+  const weekOptions = Array.from({ length: 8 }, (_, i) => {
+    const start = dayjs().startOf("week").subtract(i, "week");
+    return { value: start.format("YYYY-MM-DD"), label: start.format("DD MMM") + " – " + start.endOf("week").format("DD MMM YYYY") };
+  });
+
+  // ── Month options (last 12 months)
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const m = dayjs().subtract(i, "month");
+    return { value: m.format("YYYY-MM"), label: m.format("MMMM YYYY") };
+  });
+
+  // ── Year options (last 5 years)
+  const yearOptions = Array.from({ length: 5 }, (_, i) => {
+    const y = dayjs().subtract(i, "year").year();
+    return { value: String(y), label: String(y) };
+  });
+
+  // ── CSV export for this report
+  function exportCSV() {
+    if (filtered.length === 0) return alert("No transactions in this period");
+    const headers = ["Date","Time","Type","Amount","Bank","Merchant","Category","Mode"];
+    const rows = filtered.map(tx => [
+      dayjs(tx.date).format("DD-MM-YYYY"),
+      dayjs(tx.date).format("HH:mm"),
+      tx.type,
+      Number(tx.amount).toFixed(2),
+      tx.bank||"", tx.merchant||"", tx.category||"", tx.paymentMode||"",
+    ]);
+    const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type:"text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `report_${mode}_${dayjs().format("YYYY-MM-DD")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const inputStyle = { background:"#1a1a24", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"10px 12px", color:"#e8e4dc", fontSize:13, width:"100%", outline:"none" };
+
+  return (
+    <div style={{ padding:"16px 16px 100px" }}>
+
+      {/* Mode Tabs */}
+      <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
+        {[["weekly","📅 Weekly"],["monthly","🗓 Monthly"],["yearly","📆 Yearly"],["custom","🔎 Custom"]].map(([v,l]) => (
+          <button key={v} onClick={() => setMode(v)} style={{
+            flex:1, minWidth:"calc(50% - 6px)", padding:"10px 4px", borderRadius:10, border:"none",
+            cursor:"pointer", fontSize:12, fontWeight:600,
+            background: mode===v ? "#10b981" : "rgba(255,255,255,0.05)",
+            color: mode===v ? "#fff" : "#6b7280",
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {/* Period Selector */}
+      <div style={{ marginBottom:16 }}>
+        {mode === "weekly" && (
+          <select style={inputStyle} value={selectedWeek} onChange={e => setSelectedWeek(e.target.value)}>
+            {weekOptions.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+          </select>
+        )}
+        {mode === "monthly" && (
+          <select style={inputStyle} value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}>
+            {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        )}
+        {mode === "yearly" && (
+          <select style={inputStyle} value={selectedYear} onChange={e => setSelectedYear(e.target.value)}>
+            {yearOptions.map(y => <option key={y.value} value={y.value}>{y.label}</option>)}
+          </select>
+        )}
+        {mode === "custom" && (
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:"#6b7280", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>From</div>
+              <input type="date" style={inputStyle} value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+            </div>
+            <div style={{ paddingTop:20, color:"#6b7280" }}>→</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:"#6b7280", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>To</div>
+              <input type="date" style={inputStyle} value={customTo} onChange={e => setCustomTo(e.target.value)} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{ display:"flex", gap:10, marginBottom:14 }}>
+        {[
+          { label:"Income",       val:fmtShort(totalCredit), color:"#10b981" },
+          { label:"Spent",        val:fmtShort(totalDebit),  color:"#ef4444" },
+          { label:"Net",          val:fmtShort(net),          color: net>=0 ? "#10b981" : "#ef4444" },
+          { label:"Transactions", val:filtered.length,        color:"#60a5fa" },
+        ].map(s => (
+          <div key={s.label} style={{ flex:1, background:"rgba(255,255,255,0.03)", borderRadius:12, padding:"12px 8px", textAlign:"center", border:"1px solid rgba(255,255,255,0.07)" }}>
+            <div style={{ fontSize:13, fontWeight:"bold", color:s.color }}>{s.val}</div>
+            <div style={{ fontSize:9, color:"#6b7280", marginTop:3, textTransform:"uppercase", letterSpacing:0.5 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Savings rate */}
+      {totalCredit > 0 && (
+        <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:12, padding:14, marginBottom:14, border:"1px solid rgba(255,255,255,0.07)" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+            <span style={{ fontSize:12, color:"#9ca3af" }}>Savings Rate</span>
+            <span style={{ fontSize:12, fontWeight:"bold", color: net>=0 ? "#10b981" : "#ef4444" }}>
+              {(((totalCredit-totalDebit)/totalCredit)*100).toFixed(1)}%
+            </span>
+          </div>
+          <div style={{ height:6, background:"rgba(255,255,255,0.08)", borderRadius:3 }}>
+            <div style={{ height:"100%", width:`${Math.max(0,Math.min(100,((totalCredit-totalDebit)/totalCredit)*100))}%`, background: net>=0 ? "#10b981" : "#ef4444", borderRadius:3 }} />
+          </div>
+        </div>
+      )}
+
+      {/* Bar Chart */}
+      {chartData.length > 0 && (
+        <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginBottom:14, border:"1px solid rgba(255,255,255,0.07)" }}>
+          <div style={{ fontSize:11, color:"#6b7280", textTransform:"uppercase", letterSpacing:1, marginBottom:12 }}>Daily Breakdown</div>
+          <ResponsiveContainer width="100%" height={150}>
+            <BarChart data={chartData} margin={{ top:4, right:4, left:0, bottom:0 }}>
+              <XAxis dataKey="label" tick={{ fill:"#6b7280", fontSize:9 }} axisLine={false} tickLine={false} />
+              <YAxis hide />
+              <Tooltip
+                formatter={v => fmtShort(v)}
+                contentStyle={{ background:"#1a1a24", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, fontSize:11 }}
+              />
+              <Bar dataKey="debit"  fill="#ef4444" radius={[3,3,0,0]} name="Spent" />
+              <Bar dataKey="credit" fill="#10b981" radius={[3,3,0,0]} name="Income" />
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{ display:"flex", gap:16, justifyContent:"center", marginTop:8 }}>
+            <span style={{ fontSize:10, color:"#ef4444" }}>■ Spent</span>
+            <span style={{ fontSize:10, color:"#10b981" }}>■ Income</span>
+          </div>
+        </div>
+      )}
+
+      {/* Category Breakdown */}
+      {cats.length > 0 && (
+        <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginBottom:14, border:"1px solid rgba(255,255,255,0.07)" }}>
+          <div style={{ fontSize:11, color:"#6b7280", textTransform:"uppercase", letterSpacing:1, marginBottom:12 }}>By Category</div>
+          {cats.map((c,i) => {
+            const pct = totalDebit > 0 ? ((c.total/totalDebit)*100).toFixed(1) : 0;
+            return (
+              <div key={i} style={{ marginBottom:12 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                  <span style={{ fontSize:13, color:"#e8e4dc" }}>{c.icon} {c.name}</span>
+                  <span style={{ fontSize:13, fontWeight:"bold", color:"#ef4444" }}>{fmt(c.total)} <span style={{ fontSize:10, color:"#6b7280", fontWeight:"normal" }}>({pct}%)</span></span>
+                </div>
+                <div style={{ height:4, background:"rgba(255,255,255,0.06)", borderRadius:2 }}>
+                  <div style={{ height:"100%", width:`${pct}%`, background:c.color, borderRadius:2 }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Transactions List */}
+      {filtered.length > 0 && (
+        <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginBottom:14, border:"1px solid rgba(255,255,255,0.07)" }}>
+          <div style={{ fontSize:11, color:"#6b7280", textTransform:"uppercase", letterSpacing:1, marginBottom:12 }}>Transactions ({filtered.length})</div>
+          {filtered.slice(0,50).map((tx,i) => (
+            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, paddingBottom:10, marginBottom:10, borderBottom:"1px solid rgba(255,255,255,0.05)" }}>
+              <div style={{ width:36, height:36, borderRadius:9, background:(tx.categoryColor||"#6b7280")+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>
+                {tx.categoryIcon||"💳"}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:"#e8e4dc", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tx.bank}</div>
+                <div style={{ fontSize:11, color:"#6b7280" }}>{dayjs(tx.date).format("DD MMM")} · {tx.category}</div>
+              </div>
+              <div style={{ fontSize:13, fontWeight:"bold", color: tx.type==="credit" ? "#10b981" : "#ef4444", flexShrink:0 }}>
+                {tx.type==="credit" ? "+" : "−"}{fmt(tx.amount)}
+              </div>
+            </div>
+          ))}
+          {filtered.length > 50 && <div style={{ textAlign:"center", fontSize:12, color:"#6b7280" }}>Showing 50 of {filtered.length} — export CSV to see all</div>}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {filtered.length === 0 && (
+        <div style={{ textAlign:"center", paddingTop:40 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
+          <div style={{ fontSize:16, color:"#6b7280" }}>No transactions in this period</div>
+        </div>
+      )}
+
+      {/* Export this report */}
+      {filtered.length > 0 && (
+        <button onClick={exportCSV} style={{ width:"100%", padding:16, background:"#10b981", border:"none", borderRadius:12, color:"#fff", fontSize:15, fontWeight:"bold", cursor:"pointer", marginTop:4 }}>
+          📥 Export This Report as CSV
+        </button>
+      )}
+
+    </div>
+  );
+}
+
+function ExportScreen({ transactions, onBack, mode, setMode, selectedWeek, setSelectedWeek, selectedMonth, setSelectedMonth, selectedYear, setSelectedYear, customFrom, setCustomFrom, customTo, setCustomTo }) {
   const [exporting, setExporting] = useState(null);
 
-  const totalCredit = transactions.filter(t => t.type === "credit").reduce((s,t) => s+t.amount, 0);
-  const totalDebit  = transactions.filter(t => t.type === "debit").reduce((s,t) => s+t.amount, 0);
+  // ── Same filter logic as ReportsScreen — stays in sync
+  const filtered = useMemo(() => {
+    let from, to;
+    if (mode === "weekly") {
+      from = dayjs(selectedWeek).startOf("week");
+      to   = dayjs(selectedWeek).endOf("week");
+    } else if (mode === "monthly") {
+      from = dayjs(selectedMonth + "-01").startOf("month");
+      to   = dayjs(selectedMonth + "-01").endOf("month");
+    } else if (mode === "yearly") {
+      from = dayjs(selectedYear + "-01-01").startOf("year");
+      to   = dayjs(selectedYear + "-12-31").endOf("year");
+    } else if (mode === "custom") {
+      from = dayjs(customFrom).startOf("day");
+      to   = dayjs(customTo).endOf("day");
+    } else {
+      // "all" — no filter
+      return transactions;
+    }
+    return transactions.filter(t => {
+      const d = dayjs(t.date);
+      return d.isAfter(from.subtract(1,"ms")) && d.isBefore(to.add(1,"ms"));
+    });
+  }, [transactions, mode, selectedWeek, selectedMonth, selectedYear, customFrom, customTo]);
+
+  const totalCredit = filtered.filter(t => t.type==="credit").reduce((s,t) => s+t.amount, 0);
+  const totalDebit  = filtered.filter(t => t.type==="debit").reduce((s,t) => s+t.amount, 0);
   const thisMonth   = transactions.filter(t => t.date.startsWith(dayjs().format("YYYY-MM"))).length;
 
+  // ── Period label for filename and display
+  function periodLabel() {
+    if (mode === "weekly")  return "Week of " + dayjs(selectedWeek).format("DD MMM YYYY");
+    if (mode === "monthly") return dayjs(selectedMonth + "-01").format("MMMM YYYY");
+    if (mode === "yearly")  return selectedYear;
+    if (mode === "custom")  return dayjs(customFrom).format("DD MMM") + " to " + dayjs(customTo).format("DD MMM YYYY");
+    return "All Time";
+  }
+
+  function filenameSlug() {
+    if (mode === "weekly")  return "week_" + selectedWeek;
+    if (mode === "monthly") return "month_" + selectedMonth;
+    if (mode === "yearly")  return "year_" + selectedYear;
+    if (mode === "custom")  return "custom_" + customFrom + "_to_" + customTo;
+    return "all";
+  }
+
   async function handleExport(type) {
-    if (transactions.length === 0) return alert("No transactions to export yet");
+    if (filtered.length === 0) return alert("No transactions in this period");
     setExporting(type);
     try {
       if (type === "csv") {
         const headers = ["Date","Time","Type","Amount","Bank","Merchant","Category","Mode","Balance"];
-        const rows = transactions.map(tx => [
+        const rows = filtered.map(tx => [
           dayjs(tx.date).format("DD-MM-YYYY"),
           dayjs(tx.date).format("HH:mm"),
           tx.type,
           Number(tx.amount).toFixed(2),
-          tx.bank || "",
-          tx.merchant || "",
-          tx.category || "",
-          tx.paymentMode || "",
+          tx.bank||"", tx.merchant||"", tx.category||"",
+          tx.paymentMode||"",
           tx.balance ? Number(tx.balance).toFixed(2) : "",
         ]);
         const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
-        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+        const blob = new Blob(["\uFEFF" + csv], { type:"text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `sms_ledger_${dayjs().format("YYYY-MM-DD")}.csv`;
+        a.download = `sms_ledger_${filenameSlug()}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       } else if (type === "json") {
-        const json = JSON.stringify({ exportedAt: new Date().toISOString(), count: transactions.length, transactions }, null, 2);
-        const blob = new Blob([json], { type: "application/json" });
+        const json = JSON.stringify({ exportedAt: new Date().toISOString(), period: periodLabel(), count: filtered.length, transactions: filtered }, null, 2);
+        const blob = new Blob([json], { type:"application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `sms_ledger_backup_${dayjs().format("YYYY-MM-DD")}.json`;
+        a.download = `sms_ledger_backup_${filenameSlug()}.json`;
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -446,20 +744,13 @@ function ExportScreen({ transactions, onBack }) {
     setExporting(null);
   }
 
+  const inputStyle = { background:"#1a1a24", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"10px 12px", color:"#e8e4dc", fontSize:13, width:"100%", outline:"none" };
+
   function ExportBtn({ id, icon, title, subtitle, color }) {
     const isLoading = exporting === id;
     return (
-      <button
-        onClick={() => handleExport(id)}
-        disabled={exporting !== null}
-        style={{
-          width:"100%", background:"rgba(255,255,255,0.03)",
-          border:"1px solid rgba(255,255,255,0.08)", borderRadius:14,
-          padding:14, display:"flex", alignItems:"center", gap:14,
-          marginBottom:10, cursor:"pointer", opacity: exporting !== null ? 0.5 : 1,
-        }}
-      >
-        <div style={{ width:46, height:46, borderRadius:12, background: color+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:22 }}>
+      <button onClick={() => handleExport(id)} disabled={exporting !== null} style={{ width:"100%", background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:14, padding:14, display:"flex", alignItems:"center", gap:14, marginBottom:10, cursor:"pointer", opacity: exporting!==null ? 0.5 : 1 }}>
+        <div style={{ width:46, height:46, borderRadius:12, background:color+"18", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:22 }}>
           {isLoading ? "⏳" : icon}
         </div>
         <div style={{ flex:1, textAlign:"left" }}>
@@ -474,44 +765,78 @@ function ExportScreen({ transactions, onBack }) {
   return (
     <div style={{ padding:"16px 16px 100px" }}>
 
-      {/* Back Button */}
+      {/* Back */}
       <button onClick={onBack} style={{ display:"flex", alignItems:"center", gap:8, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:"10px 16px", color:"#e8e4dc", cursor:"pointer", fontSize:14, marginBottom:16, width:"100%" }}>
         <span style={{ fontSize:18 }}>←</span>
         <span style={{ fontWeight:600 }}>Back to Ledger</span>
       </button>
 
-      {/* Stats */}
-      <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:16, padding:16, marginBottom:16, border:"1px solid rgba(255,255,255,0.08)" }}>
-        <div style={{ fontSize:13, fontWeight:600, color:"#9ca3af", marginBottom:14 }}>📦 Your Data</div>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:12 }}>
-          {[
-            { label:"Total Transactions", val: transactions.length,  color:"#e8e4dc" },
-            { label:"This Month",         val: thisMonth,             color:"#e8e4dc" },
-            { label:"Total Income",       val: fmtShort(totalCredit), color:"#10b981" },
-            { label:"Total Spent",        val: fmtShort(totalDebit),  color:"#ef4444" },
-          ].map(s => (
-            <div key={s.label} style={{ width:"calc(50% - 6px)", background:"rgba(255,255,255,0.03)", borderRadius:10, padding:12 }}>
-              <div style={{ fontSize:16, fontWeight:"bold", color:s.color }}>{s.val}</div>
-              <div style={{ fontSize:10, color:"#6b7280", marginTop:2, textTransform:"uppercase", letterSpacing:0.5 }}>{s.label}</div>
-            </div>
+      {/* Period Selector — same as Reports */}
+      <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginBottom:14, border:"1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ fontSize:11, color:"#6b7280", textTransform:"uppercase", letterSpacing:1, marginBottom:12 }}>📅 Select Period to Export</div>
+
+        {/* Mode tabs */}
+        <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+          {[["all","🗂 All"],["weekly","📅 Week"],["monthly","🗓 Month"],["yearly","📆 Year"],["custom","🔎 Custom"]].map(([v,l]) => (
+            <button key={v} onClick={() => setMode(v)} style={{ flex:1, minWidth:"calc(33% - 4px)", padding:"8px 4px", borderRadius:8, border:"none", cursor:"pointer", fontSize:11, fontWeight:600, background: mode===v ? "#10b981" : "rgba(255,255,255,0.05)", color: mode===v ? "#fff" : "#6b7280" }}>{l}</button>
           ))}
+        </div>
+
+        {/* Period picker */}
+        {mode === "weekly" && (
+          <select style={inputStyle} value={selectedWeek} onChange={e => setSelectedWeek(e.target.value)}>
+            {Array.from({length:8},(_,i) => { const s = dayjs().startOf("week").subtract(i,"week"); return { value:s.format("YYYY-MM-DD"), label:s.format("DD MMM")+" – "+s.endOf("week").format("DD MMM YYYY") }; }).map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+          </select>
+        )}
+        {mode === "monthly" && (
+          <select style={inputStyle} value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}>
+            {Array.from({length:12},(_,i) => { const m = dayjs().subtract(i,"month"); return { value:m.format("YYYY-MM"), label:m.format("MMMM YYYY") }; }).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        )}
+        {mode === "yearly" && (
+          <select style={inputStyle} value={selectedYear} onChange={e => setSelectedYear(e.target.value)}>
+            {Array.from({length:5},(_,i) => String(dayjs().subtract(i,"year").year())).map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        )}
+        {mode === "custom" && (
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:"#6b7280", marginBottom:6, textTransform:"uppercase" }}>From</div>
+              <input type="date" style={inputStyle} value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+            </div>
+            <div style={{ paddingTop:20, color:"#6b7280" }}>→</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:"#6b7280", marginBottom:6, textTransform:"uppercase" }}>To</div>
+              <input type="date" style={inputStyle} value={customTo} onChange={e => setCustomTo(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {/* Current period summary */}
+        <div style={{ marginTop:14, padding:"12px 14px", background:"rgba(16,185,129,0.08)", borderRadius:10, border:"1px solid rgba(16,185,129,0.15)" }}>
+          <div style={{ fontSize:12, color:"#10b981", fontWeight:600, marginBottom:4 }}>📊 {periodLabel()}</div>
+          <div style={{ fontSize:12, color:"#6b7280" }}>
+            {filtered.length} transactions &nbsp;·&nbsp;
+            <span style={{ color:"#10b981" }}>+{fmtShort(totalCredit)}</span> &nbsp;
+            <span style={{ color:"#ef4444" }}>−{fmtShort(totalDebit)}</span>
+          </div>
         </div>
       </div>
 
-      {/* Export Buttons */}
-      <div style={{ fontSize:10, color:"#4b5563", textTransform:"uppercase", letterSpacing:1.2, marginBottom:10 }}>📋 EXPORT YOUR DATA</div>
-
-      <ExportBtn id="csv"  icon="📊" title="All Transactions (CSV)"   subtitle="Download and open in Excel, Numbers or Google Sheets" color="#10b981" />
-      <ExportBtn id="json" icon="💾" title="Full Backup (JSON)"        subtitle="Complete backup — save and restore your data anytime" color="#6b7280" />
+      {/* Export buttons */}
+      <div style={{ fontSize:10, color:"#4b5563", textTransform:"uppercase", letterSpacing:1.2, marginBottom:10 }}>📥 DOWNLOAD</div>
+      <ExportBtn id="csv"  icon="📊" title="Export as CSV"  subtitle={`${filtered.length} transactions · ${periodLabel()} · opens in Excel or Google Sheets`} color="#10b981" />
+      <ExportBtn id="json" icon="💾" title="Export as JSON" subtitle={`Full backup of ${filtered.length} transactions for ${periodLabel()}`} color="#6b7280" />
 
       {/* Tips */}
       <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginTop:8, border:"1px solid rgba(255,255,255,0.07)" }}>
-        <div style={{ fontSize:13, fontWeight:600, color:"#e8e4dc", marginBottom:10 }}>💡 On iPhone</div>
+        <div style={{ fontSize:13, fontWeight:600, color:"#e8e4dc", marginBottom:10 }}>💡 Tips</div>
         {[
-          "CSV → tap Download → open in Numbers or Google Sheets",
-          "JSON → keep as backup, restore your data anytime",
-          "Share files via AirDrop, WhatsApp or email",
-        ].map((tip, i) => (
+          "The period selected here stays in sync with the Reports tab",
+          "CSV opens in Excel, Numbers or Google Sheets",
+          "JSON is a full backup — import it to restore data",
+          "Share via AirDrop, WhatsApp or email after downloading",
+        ].map((tip,i) => (
           <div key={i} style={{ display:"flex", gap:8, marginBottom:6 }}>
             <span style={{ color:"#6b7280" }}>·</span>
             <span style={{ fontSize:12, color:"#6b7280", lineHeight:1.5 }}>{tip}</span>
@@ -533,6 +858,14 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [dbReady, setDbReady] = useState(false);
 
+  // Shared report period state — synced between Reports and Export
+  const [reportMode,    setReportMode]    = useState("monthly");
+  const [reportWeek,    setReportWeek]    = useState(dayjs().startOf("week").format("YYYY-MM-DD"));
+  const [reportMonth,   setReportMonth]   = useState(dayjs().format("YYYY-MM"));
+  const [reportYear,    setReportYear]    = useState(String(dayjs().year()));
+  const [reportFrom,    setReportFrom]    = useState(dayjs().startOf("month").format("YYYY-MM-DD"));
+  const [reportTo,      setReportTo]      = useState(dayjs().format("YYYY-MM-DD"));
+
   useEffect(() => {
     initDB().then(() => { setDbReady(true); loadTxns(); });
   }, []);
@@ -553,6 +886,7 @@ export default function App() {
   const tabs = [
     { id:"ledger",  icon:"📊", label:"Ledger" },
     { id:"charts",  icon:"📈", label:"Charts" },
+    { id:"reports", icon:"📋", label:"Reports" },
     { id:"export",  icon:"📤", label:"Export" },
   ];
 
@@ -571,7 +905,25 @@ export default function App() {
       <div style={styles.content}>
         {tab === "ledger" && <LedgerScreen transactions={transactions} onDelete={async id => { await deleteTransaction(id); loadTxns(); }} onRefresh={loadTxns} />}
         {tab === "charts" && <ChartsScreen />}
-        {tab === "export" && <ExportScreen transactions={transactions} onBack={() => setTab("ledger")} />}
+        {tab === "reports" && <ReportsScreen
+          transactions={transactions}
+          mode={reportMode} setMode={setReportMode}
+          selectedWeek={reportWeek} setSelectedWeek={setReportWeek}
+          selectedMonth={reportMonth} setSelectedMonth={setReportMonth}
+          selectedYear={reportYear} setSelectedYear={setReportYear}
+          customFrom={reportFrom} setCustomFrom={setReportFrom}
+          customTo={reportTo} setCustomTo={setReportTo}
+        />}
+        {tab === "export" && <ExportScreen
+          transactions={transactions}
+          onBack={() => setTab("ledger")}
+          mode={reportMode} setMode={setReportMode}
+          selectedWeek={reportWeek} setSelectedWeek={setReportWeek}
+          selectedMonth={reportMonth} setSelectedMonth={setReportMonth}
+          selectedYear={reportYear} setSelectedYear={setReportYear}
+          customFrom={reportFrom} setCustomFrom={setReportFrom}
+          customTo={reportTo} setCustomTo={setReportTo}
+        />}
       </div>
 
       {/* Bottom Nav */}
