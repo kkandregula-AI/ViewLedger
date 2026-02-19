@@ -1,0 +1,23 @@
+/* src/index.css */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #0a0a0f;
+  color: #e8e4dc;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#root { height: 100%; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 0; }
+
+/* Inputs */
+input, select, button { font-family: inherit; }
+input[type="date"] { color-scheme: dark; }
+
+/* Safe area */
+body { padding-top: env(safe-area-inset-top); }
