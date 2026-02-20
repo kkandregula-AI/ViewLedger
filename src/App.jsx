@@ -446,6 +446,7 @@ function QuickAdd({ onSave, onClose }) {
   const [mode,     setMode]     = useState("UPI");
   const [date,     setDate]     = useState(dayjs().format("YYYY-MM-DD"));
   const [saving,   setSaving]   = useState(false);
+  const [dateErr,  setDateErr]  = useState("");
   const [smsText,  setSmsText]  = useState("");
   const [scanning, setScanning] = useState(false);
   const [scanned,  setScanned]  = useState(false); // true after successful scan
@@ -457,6 +458,12 @@ function QuickAdd({ onSave, onClose }) {
   // ── Save transaction
   async function handleSave() {
     if (!amount || isNaN(parseFloat(amount))) return alert("Please enter a valid amount");
+    const today = dayjs().format("YYYY-MM-DD");
+    if (date > today) {
+      setDateErr("Date cannot be in the future");
+      return;
+    }
+    setDateErr("");
     setSaving(true);
     const finalCat = type === "credit" ? "Income" : category;
     const cat = getCategoryData(finalCat);
@@ -765,7 +772,14 @@ function QuickAdd({ onSave, onClose }) {
 
               {/* Date */}
               <label style={styles.fieldLabel}>Date</label>
-              <input style={inp} type="date" value={date} max={dayjs().format("YYYY-MM-DD")} onChange={e => { if (e.target.value <= dayjs().format("YYYY-MM-DD")) setDate(e.target.value); }} />
+              <input
+                style={{ ...inp, borderColor: dateErr ? "#ef4444" : undefined }}
+                type="date"
+                value={date}
+                max={dayjs().format("YYYY-MM-DD")}
+                onChange={e => { setDate(e.target.value); setDateErr(""); }}
+              />
+              {dateErr && <div style={{ fontSize:12, color:"#ef4444", marginTop:-8, marginBottom:10, fontWeight:600 }}>⚠️ {dateErr}</div>}
 
               {/* Merchant */}
               <label style={styles.fieldLabel}>Merchant / Description</label>
