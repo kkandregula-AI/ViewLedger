@@ -17,6 +17,30 @@
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💳</text></svg>" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0;
+        height: 100%; width: 100%;
+        /* Prevent bounce/overscroll on iOS at page level */
+        overscroll-behavior: none;
+        background: #0a0a0f;
+      }
+      #root {
+        height: 100%;
+        /* Use dvh so mobile browser chrome doesn't eat layout */
+        min-height: 100dvh;
+      }
+      /* Make modal body actually scrollable on iOS Safari */
+      .modal-scroll {
+        -webkit-overflow-scrolling: touch;
+        overflow-y: auto;
+      }
+      /* Prevent text size adjustment on orientation change */
+      body { -webkit-text-size-adjust: 100%; }
+      /* Remove tap highlight on buttons */
+      button { -webkit-tap-highlight-color: transparent; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

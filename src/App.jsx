@@ -599,8 +599,9 @@ function QuickAdd({ onSave, onClose }) {
       <div style={{
         ...styles.modalSheet,
         display:"flex", flexDirection:"column",
-        maxHeight:"88vh", height:"88vh",
+        maxHeight:"85dvh",
         overflow:"hidden",
+        paddingBottom:"env(safe-area-inset-bottom, 16px)",
       }}>
         {/* ── Fixed header ── */}
         <div style={{ flexShrink:0, padding:"24px 24px 12px 24px" }}>
@@ -622,7 +623,7 @@ function QuickAdd({ onSave, onClose }) {
         </div>
 
         {/* ── Scrollable body ── */}
-        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch", padding:"0 24px 40px 24px" }}>
+        <div className="modal-scroll" style={{ flex:1, overflowY:"auto", overscrollBehavior:"contain", touchAction:"pan-y", padding:"0 20px 60px 20px" }}>
 
           {/* SMS tab */}
           {tab === "sms" && !scanned && (
@@ -679,7 +680,7 @@ function QuickAdd({ onSave, onClose }) {
                     title="Receipt PDF"
                     style={{
                       width:"100%",
-                      height:"45vh",
+                      height:"35vh",
                       border:"none",
                       display:"block",
                       background:"#fff",
@@ -698,7 +699,7 @@ function QuickAdd({ onSave, onClose }) {
                     alt="Receipt"
                     style={{
                       width:"100%",
-                      maxHeight:"55vh",
+                      maxHeight:"35vh",
                       objectFit:"contain",
                       borderRadius:12,
                       background:"rgba(255,255,255,0.04)",
@@ -1750,8 +1751,8 @@ const styles = {
   exportSubtitle: { fontSize:12, color:"#6b7280", lineHeight:1.5, marginTop:2 },
   tipsCard: { background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginTop:4, border:"1px solid rgba(255,255,255,0.07)" },
 
-  modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"flex-end", zIndex:100, backdropFilter:"blur(4px)", flexDirection:"column", justifyContent:"flex-end" },
-  modalSheet: { background:"#13131a", borderRadius:"20px 20px 0 0", padding:0, width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid rgba(255,255,255,0.1)" },
+  modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100, backdropFilter:"blur(4px)" },
+  modalSheet: { background:"#13131a", borderRadius:"20px 20px 0 0", padding:0, width:"100%", maxWidth:430, alignSelf:"center" },
   modalHandle: { width:40, height:4, background:"rgba(255,255,255,0.2)", borderRadius:2, margin:"0 auto 20px" },
   modalTitle: { fontSize:18, fontWeight:"bold", color:"#e8e4dc", marginBottom:0 },
   typeRow: { display:"flex", gap:10, marginBottom:20 },
