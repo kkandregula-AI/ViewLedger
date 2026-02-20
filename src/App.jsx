@@ -458,8 +458,9 @@ function QuickAdd({ onSave, onClose }) {
   // ── Save transaction
   async function handleSave() {
     if (!amount || isNaN(parseFloat(amount))) return alert("Please enter a valid amount");
-    const today = dayjs().format("YYYY-MM-DD");
-    if (date > today) {
+    const selectedDate = dayjs(date).startOf("day");
+    const todayDate    = dayjs().startOf("day");
+    if (selectedDate.isAfter(todayDate)) {
       setDateErr("Date cannot be in the future");
       return;
     }
@@ -777,7 +778,20 @@ function QuickAdd({ onSave, onClose }) {
                 type="date"
                 value={date}
                 max={dayjs().format("YYYY-MM-DD")}
-                onChange={e => { setDate(e.target.value); setDateErr(""); }}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  const picked = dayjs(val).startOf("day");
+                  const today  = dayjs().startOf("day");
+                  if (picked.isAfter(today)) {
+                    // Snap to today and show error
+                    setDate(today.format("YYYY-MM-DD"));
+                    setDateErr("Future date not allowed — set to today");
+                  } else {
+                    setDate(val);
+                    setDateErr("");
+                  }
+                }}
               />
               {dateErr && <div style={{ fontSize:12, color:"#ef4444", marginTop:-8, marginBottom:10, fontWeight:600 }}>⚠️ {dateErr}</div>}
 
