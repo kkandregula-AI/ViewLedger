@@ -765,7 +765,7 @@ function QuickAdd({ onSave, onClose }) {
 
               {/* Date */}
               <label style={styles.fieldLabel}>Date</label>
-              <input style={inp} type="date" value={date} onChange={e => setDate(e.target.value)} />
+              <input style={inp} type="date" value={date} max={dayjs().format("YYYY-MM-DD")} onChange={e => { if (e.target.value <= dayjs().format("YYYY-MM-DD")) setDate(e.target.value); }} />
 
               {/* Merchant */}
               <label style={styles.fieldLabel}>Merchant / Description</label>
