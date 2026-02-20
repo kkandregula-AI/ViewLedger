@@ -1,7 +1,11 @@
 // src/App.jsx
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import dayjs from "dayjs";
-import { initDB, insertTransaction, getAllTransactions, deleteTransaction, getCategorySummary, getMonthlyTotals, getTransactionCount } from "./lib/db";
+import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
+import isSameOrBefore from "dayjs/plugin/isSameOrBefore";
+dayjs.extend(isSameOrAfter);
+dayjs.extend(isSameOrBefore);
+import { initDB, insertTransaction, getAllTransactions, deleteTransaction, getCategorySummary, getMonthlyTotals, getTransactionCount, clearAllTransactions } from "./lib/db";
 import { CATEGORIES, CATEGORY_NAMES, getCategoryData } from "./lib/categories";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
@@ -15,38 +19,455 @@ const BANKS = ["HDFC Bank","ICICI Bank","SBI","Axis Bank","Kotak Bank","Yes Bank
 const MODES = ["UPI","NEFT","IMPS","Cash","Card","Net Banking","EMI","Cheque","Other"];
 
 // ─────────────────────────────────────────────
+// FORGOT PIN SCREEN
+// ─────────────────────────────────────────────
+function ForgotPinScreen({ onRecovered, onReset, onCancel }) {
+  const hasSecret = !!localStorage.getItem(SECRET_A_KEY);
+  const questionIdx = parseInt(localStorage.getItem(SECRET_Q_KEY) || "0");
+  const question = SECRET_QUESTIONS[questionIdx] || SECRET_QUESTIONS[0];
+
+  const [answer,    setAnswer]    = useState("");
+  const [errMsg,    setErrMsg]    = useState("");
+  const [verified,  setVerified]  = useState(false); // answer correct, show new PIN setup
+  const [newPin,    setNewPin]    = useState("");
+  const [firstPin,  setFirstPin]  = useState("");
+  const [pinStep,   setPinStep]   = useState("create"); // create | confirm
+  const [shake,     setShake]     = useState(false);
+  const [success,   setSuccess]   = useState(false);
+  // Fallback: no secret set
+  const [showReset, setShowReset] = useState(false);
+  const [typed,     setTyped]     = useState("");
+
+  function triggerShake(msg) {
+    setShake(true); setErrMsg(msg); setNewPin("");
+    setTimeout(() => setShake(false), 500);
+  }
+
+  function handleVerify() {
+    if (!answer.trim()) return;
+    const stored = localStorage.getItem(SECRET_A_KEY);
+    if (hashPin(answer.trim().toLowerCase()) === stored) {
+      setVerified(true); setErrMsg("");
+    } else {
+      setErrMsg("Incorrect answer — try again");
+      setAnswer("");
+    }
+  }
+
+  function handlePinDigit(d) {
+    if (newPin.length >= 4) return;
+    const next = newPin + d;
+    setNewPin(next);
+    if (next.length === 4) setTimeout(() => handlePinComplete(next), 150);
+  }
+
+  function handlePinComplete(p) {
+    if (pinStep === "create") {
+      setFirstPin(p); setNewPin(""); setPinStep("confirm");
+    } else {
+      if (p === firstPin) {
+        localStorage.setItem(PIN_KEY, hashPin(p));
+        setSuccess(true);
+        setTimeout(() => onRecovered(), 1200);
+      } else {
+        triggerShake("PINs don't match — try again");
+        setFirstPin(""); setPinStep("create");
+      }
+    }
+  }
+
+  const dots = Array.from({ length:4 }, (_,i) => i < newPin.length);
+
+  if (success) return (
+    <div style={{ position:"fixed", inset:0, background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:9999 }}>
+      <div style={{ fontSize:64, marginBottom:16 }}>✅</div>
+      <div style={{ fontSize:20, fontWeight:700, color:"#10b981" }}>PIN Reset!</div>
+      <div style={{ fontSize:13, color:"#6b7280", marginTop:8 }}>Your data is safe. Opening app...</div>
+    </div>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:9999, padding:28 }}>
+      <div style={{ fontSize:36, marginBottom:12 }}>🔑</div>
+      <div style={{ fontSize:20, fontWeight:700, color:"#e8e4dc", marginBottom:4 }}>Forgot PIN?</div>
+
+      {!hasSecret ? (
+        /* No secret question was set — only option is full reset */
+        <div style={{ width:"100%", maxWidth:320, marginTop:16 }}>
+          <div style={{ background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:12, padding:16, marginBottom:20, fontSize:13, color:"#fbbf24", lineHeight:1.7 }}>
+            ⚠️ No secret question was set up. The only way to recover is to reset the app. Your transaction data will be deleted.
+          </div>
+          <div style={{ fontSize:12, color:"#6b7280", marginBottom:8, textAlign:"center" }}>
+            Type <strong style={{ color:"#ef4444", letterSpacing:2 }}>RESET</strong> to confirm
+          </div>
+          <input type="text" value={typed} onChange={e => setTyped(e.target.value.toUpperCase())}
+            placeholder="Type RESET here"
+            style={{ width:"100%", boxSizing:"border-box", padding:"12px", borderRadius:10, fontSize:15, background:"rgba(255,255,255,0.06)", color:"#e8e4dc", border:"1px solid rgba(255,255,255,0.1)", textAlign:"center", letterSpacing:3, fontWeight:700, outline:"none", marginBottom:14 }} />
+          <button onClick={async () => { await onReset(); }} disabled={typed !== "RESET"}
+            style={{ width:"100%", padding:"13px", borderRadius:12, border:"none", fontSize:14, fontWeight:700, cursor: typed==="RESET"?"pointer":"not-allowed", background: typed==="RESET"?"#ef4444":"rgba(239,68,68,0.15)", color: typed==="RESET"?"#fff":"#6b7280", marginBottom:10 }}>
+            🗑 Reset App & Create New PIN
+          </button>
+          <button onClick={onCancel} style={{ width:"100%", padding:"12px", borderRadius:12, border:"1px solid rgba(255,255,255,0.1)", fontSize:14, cursor:"pointer", background:"transparent", color:"#9ca3af" }}>
+            ← Go back
+          </button>
+        </div>
+
+      ) : !verified ? (
+        /* Step 1 — Answer secret question */
+        <div style={{ width:"100%", maxWidth:320, marginTop:16 }}>
+          <div style={{ background:"rgba(99,102,241,0.08)", border:"1px solid rgba(99,102,241,0.18)", borderRadius:12, padding:14, marginBottom:20 }}>
+            <div style={{ fontSize:11, color:"#818cf8", marginBottom:6, fontWeight:600 }}>SECRET QUESTION</div>
+            <div style={{ fontSize:14, color:"#e8e4dc", lineHeight:1.5 }}>{question}</div>
+          </div>
+          <input type="text" value={answer} onChange={e => { setAnswer(e.target.value); setErrMsg(""); }}
+            placeholder="Type your answer..."
+            style={{ width:"100%", boxSizing:"border-box", padding:"12px", borderRadius:10, fontSize:14, background:"rgba(255,255,255,0.06)", color:"#e8e4dc", border:"1px solid rgba(255,255,255,0.12)", outline:"none", marginBottom:6 }} />
+          {errMsg && <div style={{ fontSize:12, color:"#ef4444", marginBottom:8 }}>{errMsg}</div>}
+          <div style={{ fontSize:11, color:"#4b5563", marginBottom:16 }}>Answer is not case-sensitive</div>
+          <button onClick={handleVerify} disabled={!answer.trim()}
+            style={{ width:"100%", padding:"13px", borderRadius:12, border:"none", fontSize:14, fontWeight:700, cursor: answer.trim()?"pointer":"not-allowed", background: answer.trim()?"#6366f1":"rgba(99,102,241,0.15)", color: answer.trim()?"#fff":"#4b5563", marginBottom:10 }}>
+            ✓ Verify Answer
+          </button>
+          <button onClick={onCancel} style={{ width:"100%", padding:"12px", borderRadius:12, border:"1px solid rgba(255,255,255,0.1)", fontSize:14, cursor:"pointer", background:"transparent", color:"#9ca3af" }}>
+            ← Go back
+          </button>
+        </div>
+
+      ) : (
+        /* Step 2 — Set new PIN (answer was correct, data stays safe) */
+        <>
+          <div style={{ fontSize:13, color:"#10b981", fontWeight:600, marginBottom:4 }}>✅ Answer correct! Set your new PIN</div>
+          <div style={{ fontSize:12, color:"#6b7280", marginBottom:28 }}>Your data is safe — just choose a new PIN</div>
+          <div style={{ fontSize:15, fontWeight:700, color:"#e8e4dc", marginBottom:20 }}>
+            {pinStep === "create" ? "Enter new PIN" : "Confirm new PIN"}
+          </div>
+          <div style={{ display:"flex", gap:16, marginBottom:12, animation: shake ? "shake 0.4s ease" : "none" }}>
+            {dots.map((filled, i) => (
+              <div key={i} style={{ width:18, height:18, borderRadius:"50%", background: filled?"#10b981":"transparent", border:`2px solid ${filled?"#10b981":"rgba(255,255,255,0.2)"}`, transition:"all 0.15s ease" }} />
+            ))}
+          </div>
+          <div style={{ height:20, marginBottom:20, fontSize:13, color:"#ef4444", fontWeight:600 }}>{errMsg}</div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,72px)", gap:12 }}>
+            {[1,2,3,4,5,6,7,8,9].map(d => (
+              <button key={d} onClick={() => handlePinDigit(String(d))} style={padBtn}>{d}</button>
+            ))}
+            <div />
+            <button onClick={() => handlePinDigit("0")} style={padBtn}>0</button>
+            <button onClick={() => setNewPin(p => p.slice(0,-1))} style={{ ...padBtn, fontSize:20, color:"#9ca3af" }}>⌫</button>
+          </div>
+        </>
+      )}
+
+      <style>{`
+        @keyframes shake {
+          0%,100%{transform:translateX(0)}
+          20%{transform:translateX(-10px)}
+          40%{transform:translateX(10px)}
+          60%{transform:translateX(-8px)}
+          80%{transform:translateX(8px)}
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// PIN LOCK SYSTEM
+// ─────────────────────────────────────────────
+const PIN_KEY        = "vl_pin";
+const PIN_SET_KEY    = "vl_pin_set";
+const SECRET_Q_KEY   = "vl_secret_q";   // stores chosen question index
+const SECRET_A_KEY   = "vl_secret_a";   // stores hashed answer
+
+const SECRET_QUESTIONS = [
+  "What is your mother's maiden name?",
+  "What was the name of your first pet?",
+  "What city were you born in?",
+  "What was the name of your first school?",
+  "What is your favourite movie?",
+  "What is your childhood nickname?",
+  "What street did you grow up on?",
+];
+
+function hashPin(str) {
+  // Simple hash — good enough for local device privacy
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) & 0xffffffff;
+  return String(h >>> 0);
+}
+
+function PinScreen({ mode, onSuccess, onSetPin }) {
+  const initStep = mode === "setup" ? "create" : mode === "change" ? "verify_old" : "enter";
+  const [step,     setStep]     = useState(initStep);
+  const [pin,      setPin]      = useState("");
+  const [firstPin, setFirstPin] = useState("");
+  const [shake,    setShake]    = useState(false);
+  const [errMsg,   setErrMsg]   = useState("");
+  const [success,  setSuccess]  = useState(false);
+  const [secretQ,  setSecretQ]  = useState(0);
+  const [secretA,  setSecretA]  = useState("");
+
+  // Key insight: don't use setTimeout + stale closure.
+  // Instead, track pending completion in state and handle in useEffect.
+  const [pendingPin, setPendingPin] = useState(null); // { pin, step } when 4 digits entered
+
+  useEffect(() => {
+    if (!pendingPin) return;
+    const { p, s } = pendingPin;
+    setPendingPin(null);
+
+    if (s === "verify_old") {
+      if (hashPin(p) === localStorage.getItem(PIN_KEY)) {
+        setPin(""); setStep("create");
+      } else {
+        setShake(true); setErrMsg("Incorrect current PIN — try again"); setPin("");
+        setTimeout(() => setShake(false), 600);
+      }
+    } else if (s === "create") {
+      setFirstPin(p); setPin(""); setStep("confirm");
+    } else if (s === "confirm") {
+      if (p === firstPin) {
+        localStorage.setItem(PIN_KEY, hashPin(p));
+        localStorage.setItem(PIN_SET_KEY, "1");
+        if (mode === "setup") {
+          setPin(""); setStep("secret");
+        } else {
+          setSuccess(true);
+          setTimeout(() => onSetPin(), 1200);
+        }
+      } else {
+        setShake(true); setErrMsg("PINs don't match — try again"); setPin(""); setFirstPin(""); setStep("create");
+        setTimeout(() => setShake(false), 600);
+      }
+    } else if (s === "enter") {
+      if (hashPin(p) === localStorage.getItem(PIN_KEY)) {
+        onSuccess();
+      } else {
+        setShake(true); setErrMsg("Wrong PIN — try again"); setPin("");
+        setTimeout(() => setShake(false), 600);
+      }
+    }
+  }, [pendingPin]);
+
+  function handleDigit(d) {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setErrMsg("");
+    if (next.length === 4) {
+      // Capture current step at this exact moment — no closure issues
+      setPendingPin({ p: next, s: step });
+    }
+  }
+
+  function handleBackspace() {
+    setPin(p => p.slice(0, -1));
+    setErrMsg("");
+  }
+
+  function handleSecretSave() {
+    if (!secretA.trim()) return;
+    localStorage.setItem(SECRET_Q_KEY, String(secretQ));
+    localStorage.setItem(SECRET_A_KEY, hashPin(secretA.trim().toLowerCase()));
+    setSuccess(true);
+    setTimeout(() => onSetPin(), 1000);
+  }
+
+  const dots = Array.from({ length: 4 }, (_, i) => i < pin.length);
+
+  const titles = {
+    verify_old: "Enter current PIN",
+    create:     mode === "change" ? "Enter new PIN" : "Create your PIN",
+    confirm:    mode === "change" ? "Confirm new PIN" : "Confirm your PIN",
+    enter:      "Enter PIN",
+    secret:     "Set a secret question",
+  };
+  const subs = {
+    verify_old: "Verify your current PIN before changing",
+    create:     mode === "change" ? "Choose a new 4-digit PIN" : "Set a 4-digit PIN to protect your finances",
+    confirm:    "Enter the same PIN again to confirm",
+    enter:      "Enter your PIN to continue",
+    secret:     "Answer this if you ever forget your PIN",
+  };
+
+  const changeSteps  = ["verify_old", "create", "confirm"];
+  const changeLabels = ["Current PIN", "New PIN", "Confirm"];
+
+  if (success) return (
+    <div style={{ position:"fixed", inset:0, background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:9999 }}>
+      <div style={{ fontSize:64, marginBottom:12 }}>✅</div>
+      <div style={{ fontSize:20, fontWeight:700, color:"#10b981" }}>
+        {mode === "change" ? "PIN Changed!" : "PIN Created!"}
+      </div>
+      <div style={{ fontSize:13, color:"#6b7280", marginTop:8 }}>Opening app...</div>
+    </div>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:9999, padding:32, userSelect:"none" }}>
+      <div style={{ fontSize:44, marginBottom:6 }}>💳</div>
+      <div style={{ fontSize:20, fontWeight:"bold", color:"#e8e4dc", marginBottom:2 }}>View Ledger</div>
+      <div style={{ fontSize:12, color:"#6b7280", marginBottom: mode === "change" ? 20 : 32 }}>Your private finance tracker</div>
+
+      {/* Change PIN progress bar */}
+      {mode === "change" && step !== "secret" && (
+        <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:24 }}>
+          {changeSteps.map((s, i) => {
+            const idx = changeSteps.indexOf(step);
+            const done = i < idx;
+            const active = i === idx;
+            return (
+              <div key={s} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                  <div style={{ width:28, height:28, borderRadius:"50%", fontSize:11, fontWeight:700,
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    background: done ? "#10b981" : active ? "#6366f1" : "rgba(255,255,255,0.06)",
+                    color: (done||active) ? "#fff" : "#4b5563",
+                    border: active ? "2px solid #818cf8" : "2px solid transparent" }}>
+                    {done ? "✓" : i + 1}
+                  </div>
+                  <div style={{ fontSize:9, color: active ? "#818cf8" : done ? "#10b981" : "#4b5563", whiteSpace:"nowrap" }}>
+                    {changeLabels[i]}
+                  </div>
+                </div>
+                {i < changeSteps.length - 1 && (
+                  <div style={{ width:20, height:2, background: done ? "#10b981" : "rgba(255,255,255,0.08)", marginBottom:14, borderRadius:2 }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Title */}
+      <div style={{ fontSize:17, fontWeight:700, color:"#e8e4dc", marginBottom:4, textAlign:"center" }}>{titles[step]}</div>
+      <div style={{ fontSize:12, color:"#6b7280", marginBottom:24, textAlign:"center" }}>{subs[step]}</div>
+
+      {/* Secret question step */}
+      {step === "secret" ? (
+        <div style={{ width:"100%", maxWidth:320 }}>
+          <label style={{ fontSize:12, color:"#6b7280", display:"block", marginBottom:8 }}>Choose a secret question</label>
+          <select value={secretQ} onChange={e => setSecretQ(Number(e.target.value))}
+            style={{ width:"100%", padding:"10px 12px", borderRadius:10, background:"rgba(255,255,255,0.06)", color:"#e8e4dc", border:"1px solid rgba(255,255,255,0.12)", fontSize:13, marginBottom:14, outline:"none", boxSizing:"border-box" }}>
+            {SECRET_QUESTIONS.map((q, i) => <option key={i} value={i}>{q}</option>)}
+          </select>
+          <label style={{ fontSize:12, color:"#6b7280", display:"block", marginBottom:8 }}>Your answer</label>
+          <input type="text" value={secretA} onChange={e => setSecretA(e.target.value)}
+            placeholder="Type your answer..."
+            style={{ width:"100%", padding:"10px 12px", borderRadius:10, background:"rgba(255,255,255,0.06)", color:"#e8e4dc", border:"1px solid rgba(255,255,255,0.12)", fontSize:13, marginBottom:6, outline:"none", boxSizing:"border-box" }} />
+          <div style={{ fontSize:11, color:"#4b5563", marginBottom:16 }}>Not case-sensitive · Stored securely on device</div>
+          <button onClick={handleSecretSave} disabled={!secretA.trim()}
+            style={{ width:"100%", padding:"13px", borderRadius:12, border:"none", fontSize:14, fontWeight:700,
+              cursor: secretA.trim() ? "pointer" : "not-allowed",
+              background: secretA.trim() ? "#10b981" : "rgba(16,185,129,0.2)",
+              color: secretA.trim() ? "#fff" : "#4b5563", marginBottom:8 }}>
+            ✅ Save & Open App
+          </button>
+          <button onClick={() => onSetPin()}
+            style={{ width:"100%", padding:"10px", borderRadius:12, border:"none", fontSize:13, cursor:"pointer", background:"transparent", color:"#4b5563" }}>
+            Skip for now
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* PIN dots */}
+          <div style={{ display:"flex", gap:16, marginBottom:10, animation: shake ? "shake 0.4s ease" : "none" }}>
+            {dots.map((filled, i) => (
+              <div key={i} style={{ width:18, height:18, borderRadius:"50%",
+                background: filled ? (step === "verify_old" ? "#6366f1" : "#10b981") : "transparent",
+                border: `2px solid ${filled ? (step === "verify_old" ? "#6366f1" : "#10b981") : "rgba(255,255,255,0.2)"}`,
+                transition:"all 0.15s ease" }} />
+            ))}
+          </div>
+          <div style={{ height:20, marginBottom:20, fontSize:13, color:"#ef4444", fontWeight:600, textAlign:"center" }}>{errMsg}</div>
+
+          {/* Number pad */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,72px)", gap:12 }}>
+            {[1,2,3,4,5,6,7,8,9].map(d => (
+              <button key={d} onClick={() => handleDigit(String(d))} style={padBtn}>{d}</button>
+            ))}
+            <div />
+            <button onClick={() => handleDigit("0")} style={padBtn}>0</button>
+            <button onClick={handleBackspace} style={{ ...padBtn, fontSize:20, color:"#9ca3af" }}>⌫</button>
+          </div>
+
+          {/* Footer links on enter screen only */}
+          {mode === "enter" && (
+            <div style={{ marginTop:24, display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
+              <div style={{ display:"flex", gap:20 }}>
+                <button onClick={() => onSetPin("change")}
+                  style={{ background:"none", border:"none", color:"#6366f1", fontSize:13, cursor:"pointer", fontWeight:600 }}>
+                  🔑 Change PIN
+                </button>
+                <button onClick={() => onSetPin("forgot")}
+                  style={{ background:"none", border:"none", color:"#9ca3af", fontSize:13, cursor:"pointer" }}>
+                  Forgot PIN?
+                </button>
+              </div>
+              <div style={{ fontSize:11, color:"#374151" }}>PIN stored locally on your device only</div>
+            </div>
+          )}
+        </>
+      )}
+
+      <style>{`
+        @keyframes shake {
+          0%,100%{transform:translateX(0)}
+          20%{transform:translateX(-10px)}
+          40%{transform:translateX(10px)}
+          60%{transform:translateX(-8px)}
+          80%{transform:translateX(8px)}
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
+const padBtn = {
+  width:72, height:72, borderRadius:"50%",
+  background:"rgba(255,255,255,0.05)",
+  border:"1px solid rgba(255,255,255,0.08)",
+  color:"#e8e4dc", fontSize:22, fontWeight:600,
+  cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+  transition:"background 0.1s",
+};
+
+// ─────────────────────────────────────────────
 // QUICK ADD MODAL
 // ─────────────────────────────────────────────
 function QuickAdd({ onSave, onClose }) {
-  const [type, setType] = useState("debit");
-  const [amount, setAmount] = useState("");
+  const [tab,      setTab]      = useState("manual");
+  const [type,     setType]     = useState("debit");
+  const [amount,   setAmount]   = useState("");
   const [merchant, setMerchant] = useState("");
-  const [bank, setBank] = useState("HDFC Bank");
+  const [bank,     setBank]     = useState("HDFC Bank");
   const [category, setCategory] = useState("Shopping");
-  const [mode, setMode] = useState("UPI");
-  const [date, setDate] = useState(dayjs().format("YYYY-MM-DD"));
-  const [saving, setSaving] = useState(false);
+  const [mode,     setMode]     = useState("UPI");
+  const [date,     setDate]     = useState(dayjs().format("YYYY-MM-DD"));
+  const [saving,   setSaving]   = useState(false);
+  const [smsText,  setSmsText]  = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanned,  setScanned]  = useState(false); // true after successful scan
+  const [scanMsg,  setScanMsg]  = useState("");
+  const [scanOk,   setScanOk]   = useState(false);
+  const [receiptPreview, setReceiptPreview] = useState(null);
+  const [pdfObjectUrl,   setPdfObjectUrl]   = useState(null);
 
+  // ── Save transaction
   async function handleSave() {
     if (!amount || isNaN(parseFloat(amount))) return alert("Please enter a valid amount");
     setSaving(true);
-    const cat = getCategoryData(type === "credit" ? "Income" : category);
     const finalCat = type === "credit" ? "Income" : category;
+    const cat = getCategoryData(finalCat);
     const tx = {
       id: `manual_${Date.now()}_${Math.random().toString(36).substr(2,6)}`,
-      date: new Date(date).toISOString(),
-      amount: parseFloat(amount),
-      type,
-      bank,
-      account: null,
-      merchant: merchant || "Manual Entry",
-      paymentMode: mode,
-      balance: null,
-      category: finalCat,
-      categoryIcon: cat.icon,
-      categoryColor: cat.color,
+      date: dayjs(date).hour(12).minute(0).second(0).toISOString(),
+      amount: parseFloat(amount), type, bank, account: null,
+      merchant: merchant || "Manual Entry", paymentMode: mode, balance: null,
+      category: finalCat, categoryIcon: cat.icon, categoryColor: cat.color,
       raw: `Manual: ${type} ₹${amount} ${merchant}`,
-      sender: "MANUAL",
+      sender: tab === "sms" ? "SMS_PARSE" : tab === "receipt" ? "RECEIPT_PARSE" : "MANUAL",
     };
     await insertTransaction(tx);
     setSaving(false);
@@ -54,85 +475,343 @@ function QuickAdd({ onSave, onClose }) {
     onClose();
   }
 
+  // ── Local SMS parser
+  function parseLocalSMS(sms) {
+    const t = sms.trim();
+    if (!t) return null;
+    // Amount
+    const amtM = t.match(/(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i);
+    if (!amtM) return null;
+    const amount = parseFloat(amtM[1].replace(/,/g, ""));
+    if (!amount || amount <= 0) return null;
+    // Type — find first occurrence of credit or debit keyword
+    // Type — indexOf approach, no regex word boundary issues
+    const tl = t.toLowerCase();
+    const creditWords = ["credited","credit","received","deposited","refund","cashback","added"];
+    const debitWords  = ["debited","debit","spent","withdrawn","paid","purchase","sent","deducted"];
+    let cPos = -1, dPos = -1;
+    for (const w of creditWords) { const idx = tl.indexOf(w); if (idx !== -1 && (cPos === -1 || idx < cPos)) cPos = idx; }
+    for (const w of debitWords)  { const idx = tl.indexOf(w); if (idx !== -1 && (dPos === -1 || idx < dPos)) dPos = idx; }
+    let type = "debit";
+    if (cPos !== -1 && (dPos === -1 || cPos < dPos)) type = "credit";
+    // Bank
+    const bankMap = [
+      [/HDFC/i,"HDFC Bank"],[/ICICI/i,"ICICI Bank"],[/SBI|State Bank/i,"State Bank of India"],
+      [/AXIS/i,"Axis Bank"],[/KOTAK/i,"Kotak Bank"],[/PNB|Punjab National/i,"Punjab National Bank"],
+      [/YES.?BANK/i,"Yes Bank"],[/PAYTM/i,"Paytm Bank"],[/PHONEPE/i,"PhonePe"],
+      [/Bank of Baroda|BOB/i,"Bank of Baroda"],[/CANARA/i,"Canara Bank"],
+      [/UNION BANK/i,"Union Bank"],[/INDUSIND/i,"IndusInd Bank"],
+      [/IDFC/i,"IDFC First Bank"],[/FEDERAL/i,"Federal Bank"],
+    ];
+    let bank = "Other";
+    for (const [rx, name] of bankMap) { if (rx.test(t)) { bank = name; break; } }
+    // Payment mode
+    let paymentMode = "Other";
+    if (/UPI/i.test(t))                          paymentMode = "UPI";
+    else if (/NEFT/i.test(t))                    paymentMode = "NEFT";
+    else if (/IMPS/i.test(t))                    paymentMode = "IMPS";
+    else if (/RTGS/i.test(t))                    paymentMode = "RTGS";
+    else if (/ATM/i.test(t))                     paymentMode = "ATM";
+    else if (/(card|pos|swipe)/i.test(t))        paymentMode = "Card Swipe";
+    else if (/net.?banking/i.test(t))            paymentMode = "Net Banking";
+    else if (/EMI/i.test(t))                     paymentMode = "EMI";
+    // Merchant
+    let merchant = "";
+    const upiM  = t.match(/(?:to\s+VPA|VPA)\s+([\w.\-@]+)/i);
+    const posM  = t.match(/at\s+([A-Z][A-Z0-9 &\-']{2,30})/);
+    const neftM = t.match(/(?:to|towards)\s+(?:A\/C\s+of\s+)?([A-Z][A-Za-z ]{2,25})/i);
+    if (upiM)        merchant = upiM[1].split("@")[0].replace(/\./g," ").trim();
+    else if (posM)   merchant = posM[1].trim();
+    else if (neftM)  merchant = neftM[1].trim();
+    // Date
+    let date = dayjs().format("YYYY-MM-DD");
+    const d1 = t.match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/);
+    const d2 = t.match(/(\d{1,2})[-\s](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[-\s](\d{2,4})/i);
+    const d3 = t.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (d1) { const y = d1[3].length===2?"20"+d1[3]:d1[3]; const dt=`${y}-${d1[2].padStart(2,"0")}-${d1[1].padStart(2,"0")}`; if(dayjs(dt).isValid()) date=dt; }
+    else if (d2) { const mo={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12"}; const y=d2[3].length===2?"20"+d2[3]:d2[3]; const dt=`${y}-${mo[d2[2].toLowerCase()]}-${d2[1].padStart(2,"0")}`; if(dayjs(dt).isValid()) date=dt; }
+    else if (d3) { date=`${d3[1]}-${d3[2]}-${d3[3]}`; }
+    // Category
+    let category = type === "credit" ? "Income" : "Other";
+    if (type === "debit") {
+      const rules = [
+        [/swiggy|zomato|food|restaurant|cafe|dominos|mcdonald|pizza|biryani/i,"Food"],
+        [/amazon|flipkart|myntra|shop|store|mart|mall|retail|meesho|ajio/i,"Shopping"],
+        [/uber|ola|rapido|irctc|bus|metro|auto|petrol|fuel|parking|train|flight/i,"Transport"],
+        [/netflix|prime|hotstar|spotify|game|cinema|movie|pvr|inox/i,"Entertainment"],
+        [/hospital|clinic|pharmacy|medical|doctor|health|apollo/i,"Healthcare"],
+        [/school|college|university|tuition|course|fee|exam/i,"Education"],
+        [/electricity|water|gas|internet|airtel|jio|recharge|bill/i,"Utilities"],
+        [/emi|loan|equated|mortgage|installment/i,"EMI"],
+      ];
+      for (const [rx, cat] of rules) { if (rx.test(t)||(merchant&&rx.test(merchant))) { category=cat; break; } }
+    }
+    return { type, amount, bank, merchant, paymentMode, date, category };
+  }
+
+  function handleScan() {
+    if (!smsText.trim()) return alert("Please paste a bank SMS first");
+    setScanning(true); setScanMsg(""); setScanOk(false); setScanned(false);
+    setTimeout(() => {
+      const result = parseLocalSMS(smsText);
+      if (!result) {
+        setScanMsg("No transaction found. Make sure the SMS has an amount like Rs.1,200 and words like debited/credited.");
+        setScanOk(false);
+      } else {
+        setType(result.type);
+        setAmount(String(result.amount));
+        setBank(result.bank);
+        setMerchant(result.merchant || "");
+        setMode(result.paymentMode);
+        setCategory(result.category);
+        setDate(result.date);
+        setScanned(true);
+        setScanOk(true);
+        setScanMsg(`✅ Detected: ${result.type === "credit" ? "Income" : "Spent"} ₹${result.amount} from ${result.bank} on ${result.date}. Review and save below.`);
+      }
+      setScanning(false);
+    }, 400);
+  }
+
+  // ── Receipt upload — show image large / PDF open-in-tab
+  function handleReceiptUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (isPDF) {
+      const url = URL.createObjectURL(file);
+      setPdfObjectUrl(url);               // store for "Open PDF" button
+      setReceiptPreview("PDF:" + file.name);
+    } else {
+      setReceiptPreview(URL.createObjectURL(file));
+    }
+    setScanned(true);
+    setScanOk(true);
+    setScanMsg("RECEIPT_READY");
+  }
+  // Shared form shown after scan or on manual tab
+  const showForm = tab === "manual" || scanned;
+
+  const inp = { ...styles.input, marginBottom:12 };
+
   return (
     <div style={styles.modalOverlay}>
-      {/* Full-width Cancel bar at top - always visible */}
-      <button onClick={onClose} style={{ position:"absolute", top:0, left:0, right:0, padding:"16px", background:"transparent", border:"none", cursor:"pointer", zIndex:200, display:"flex", justifyContent:"center" }}>
-        <div style={{ width:40, height:5, background:"rgba(255,255,255,0.3)", borderRadius:3 }} />
-      </button>
-      <div style={styles.modalSheet}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-          <h2 style={{ ...styles.modalTitle, marginBottom:0 }}>Add Transaction</h2>
-          <button onClick={onClose} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:8, padding:"8px 16px", color:"#ef4444", cursor:"pointer", fontSize:14, fontWeight:600 }}>✕ Cancel</button>
-        </div>
-
-        {/* Type */}
-        <div style={styles.typeRow}>
-          {["debit","credit"].map(t => (
-            <button key={t} onClick={() => setType(t)} style={{
-              ...styles.typeBtn,
-              background: type === t ? (t === "debit" ? "#ef444420" : "#10b98120") : "rgba(255,255,255,0.04)",
-              borderColor: type === t ? (t === "debit" ? "#ef4444" : "#10b981") : "rgba(255,255,255,0.1)",
-              color: type === t ? (t === "debit" ? "#ef4444" : "#10b981") : "#6b7280",
-            }}>
-              {t === "debit" ? "💸 Spent" : "💰 Income"}
-            </button>
-          ))}
-        </div>
-
-        {/* Amount */}
-        <div style={styles.amountRow}>
-          <span style={styles.currSymbol}>₹</span>
-          <input style={styles.amountInput} type="number" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} autoFocus inputMode="decimal" />
-        </div>
-
-        {/* Date */}
-        <label style={styles.fieldLabel}>Date</label>
-        <input style={styles.input} type="date" value={date} onChange={e => setDate(e.target.value)} />
-
-        {/* Merchant */}
-        <label style={styles.fieldLabel}>Merchant / Description</label>
-        <input style={styles.input} type="text" placeholder="e.g. Swiggy, Salary, Amazon..." value={merchant} onChange={e => setMerchant(e.target.value)} />
-
-        {/* Bank */}
-        <label style={styles.fieldLabel}>Bank</label>
-        <select style={styles.select} value={bank} onChange={e => setBank(e.target.value)}>
-          {BANKS.map(b => <option key={b}>{b}</option>)}
-        </select>
-
-        {/* Category (debit only) */}
-        {type === "debit" && (<>
-          <label style={styles.fieldLabel}>Category</label>
-          <div style={styles.catGrid}>
-            {CATEGORY_NAMES.filter(c => c !== "Income").map(c => {
-              const d = getCategoryData(c);
-              return (
-                <button key={c} onClick={() => setCategory(c)} style={{
-                  ...styles.catChip,
-                  background: category === c ? d.color + "25" : "rgba(255,255,255,0.04)",
-                  borderColor: category === c ? d.color : "rgba(255,255,255,0.08)",
-                  color: category === c ? d.color : "#9ca3af",
-                }}>
-                  {d.icon} {c}
-                </button>
-              );
-            })}
+      <div style={{
+        ...styles.modalSheet,
+        display:"flex", flexDirection:"column",
+        maxHeight:"88vh", height:"88vh",
+        overflow:"hidden",
+      }}>
+        {/* ── Fixed header ── */}
+        <div style={{ flexShrink:0, padding:"24px 24px 12px 24px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+            <h2 style={{ ...styles.modalTitle, marginBottom:0 }}>Add Transaction</h2>
+            <button onClick={onClose} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:8, padding:"8px 14px", color:"#ef4444", cursor:"pointer", fontSize:13, fontWeight:600 }}>✕ Cancel</button>
           </div>
-        </>)}
+          {/* Tabs */}
+          <div style={{ display:"flex", gap:5, background:"rgba(255,255,255,0.05)", borderRadius:10, padding:4 }}>
+            {[["manual","✏️ Manual"],["sms","📩 Paste SMS"],["receipt","📷 Receipt"]].map(([t,l]) => (
+              <button key={t} onClick={() => { setTab(t); setScanned(false); setScanMsg(""); setScanOk(false); setReceiptPreview(null); }} style={{
+                flex:1, padding:"8px 4px", borderRadius:7, border:"none", cursor:"pointer",
+                fontSize:11, fontWeight:700,
+                background: tab===t ? "#10b981" : "transparent",
+                color: tab===t ? "#fff" : "#6b7280",
+              }}>{l}</button>
+            ))}
+          </div>
+        </div>
 
-        {/* Mode */}
-        <label style={styles.fieldLabel}>Payment Mode</label>
-        <select style={styles.select} value={mode} onChange={e => setMode(e.target.value)}>
-          {MODES.map(m => <option key={m}>{m}</option>)}
-        </select>
+        {/* ── Scrollable body ── */}
+        <div style={{ flex:1, overflowY:"auto", WebkitOverflowScrolling:"touch", padding:"0 24px 40px 24px" }}>
 
-        <button style={{ ...styles.saveBtn, opacity: saving ? 0.6 : 1 }} onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : "💾 Save Transaction"}
-        </button>
+          {/* SMS tab */}
+          {tab === "sms" && !scanned && (
+            <div>
+              <label style={styles.fieldLabel}>Paste Bank SMS Message</label>
+              <textarea
+                style={{ ...inp, height:110, resize:"none", fontFamily:"monospace", fontSize:12, lineHeight:1.6, marginBottom:10 }}
+                placeholder="Paste your bank SMS here e.g. HDFC Bank: Rs.1,200.00 debited from a/c **1234 on 15-01-26 to VPA swiggy@upi. Avl bal Rs.24,800.00"
+                value={smsText}
+                onChange={e => setSmsText(e.target.value)}
+              />
+              <button onClick={handleScan} disabled={scanning} style={{ width:"100%", padding:13, background: scanning?"#374151":"#6366f1", border:"none", borderRadius:10, color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {scanning ? "🔍 Scanning..." : "🔍 Scan & Extract Details"}
+              </button>
+              {scanMsg && <div style={{ marginTop:10, padding:10, background:"rgba(239,68,68,0.1)", borderRadius:8, color:"#ef4444", fontSize:12 }}>{scanMsg}</div>}
+              <div style={{ marginTop:12, padding:10, background:"rgba(255,255,255,0.03)", borderRadius:8, fontSize:11, color:"#6b7280", lineHeight:1.6 }}>
+                Supports HDFC, ICICI, SBI, Axis, Kotak and 10 more Indian banks. Detects amount, date, merchant and category automatically.
+              </div>
+            </div>
+          )}
+
+          {/* Receipt tab — upload then fill form manually while viewing image */}
+          {tab === "receipt" && !scanned && (
+            <div>
+              <label style={styles.fieldLabel}>Upload Receipt or Screenshot</label>
+              <label style={{ display:"block", border:"2px dashed rgba(255,255,255,0.15)", borderRadius:12, padding:"36px 16px", textAlign:"center", cursor:"pointer", background:"rgba(255,255,255,0.02)" }}>
+                <div style={{ fontSize:40, marginBottom:10 }}>📎</div>
+                <div style={{ fontSize:14, color:"#9ca3af", fontWeight:600, marginBottom:4 }}>Tap to attach receipt</div>
+                <div style={{ fontSize:11, color:"#6b7280", marginBottom:6 }}>JPG, JPEG, PNG, GIF, WebP or PDF</div>
+                <div style={{ fontSize:11, color:"#4b5563" }}>Receipt stays visible while you fill in the details</div>
+                <input type="file" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/bmp,application/pdf" style={{ display:"none" }} onChange={handleReceiptUpload} />
+              </label>
+            </div>
+          )}
+
+          {/* Receipt preview — large so user can read all details */}
+          {tab === "receipt" && scanned && receiptPreview && (
+            <div style={{ marginBottom:12 }}>
+              {receiptPreview.startsWith("PDF:") ? (
+                /* PDF — shown inline via iframe, resizable, form below */
+                <div style={{ borderRadius:12, overflow:"hidden", border:"1px solid rgba(255,255,255,0.12)", marginBottom:8, background:"rgba(255,255,255,0.03)" }}>
+                  {/* Toolbar */}
+                  <div style={{ padding:"8px 12px", background:"rgba(255,255,255,0.05)", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ fontSize:18 }}>📄</span>
+                      <span style={{ fontSize:11, color:"#e8e4dc", fontWeight:600, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{receiptPreview.replace("PDF:","")}</span>
+                    </div>
+                    <button onClick={() => { setReceiptPreview(null); setPdfObjectUrl(null); setScanned(false); setScanMsg(""); }}
+                      style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", borderRadius:6, padding:"3px 10px", color:"#ef4444", cursor:"pointer", fontSize:11, fontWeight:600 }}>✕ Remove</button>
+                  </div>
+                  {/* PDF viewer — inline iframe */}
+                  <iframe
+                    src={pdfObjectUrl}
+                    title="Receipt PDF"
+                    style={{
+                      width:"100%",
+                      height:"45vh",
+                      border:"none",
+                      display:"block",
+                      background:"#fff",
+                    }}
+                  />
+                  {/* Resize hint */}
+                  <div style={{ padding:"6px 12px", fontSize:10, color:"#4b5563", textAlign:"center" }}>
+                    Scroll inside PDF to read · Fill the form below
+                  </div>
+                </div>
+              ) : (
+                /* Image — show full size with pinch-zoom enabled, remove button on top right */
+                <div style={{ position:"relative", marginBottom:8 }}>
+                  <img
+                    src={receiptPreview}
+                    alt="Receipt"
+                    style={{
+                      width:"100%",
+                      maxHeight:"55vh",
+                      objectFit:"contain",
+                      borderRadius:12,
+                      background:"rgba(255,255,255,0.04)",
+                      border:"1px solid rgba(255,255,255,0.1)",
+                      display:"block",
+                      touchAction:"pinch-zoom",
+                    }}
+                  />
+                  {/* Zoom hint */}
+                  <div style={{ position:"absolute", bottom:8, left:"50%", transform:"translateX(-50%)", background:"rgba(0,0,0,0.6)", borderRadius:20, padding:"4px 10px", fontSize:10, color:"rgba(255,255,255,0.7)", whiteSpace:"nowrap", pointerEvents:"none" }}>
+                    Pinch to zoom
+                  </div>
+                  <button onClick={() => { setReceiptPreview(null); setScanned(false); setScanMsg(""); }}
+                    style={{ position:"absolute", top:8, right:8, background:"rgba(0,0,0,0.7)", border:"1px solid rgba(255,255,255,0.2)", borderRadius:"50%", width:30, height:30, color:"#fff", cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Scan result message */}
+          {/* Receipt ready — show a helpful tip above the form */}
+          {scanMsg === "RECEIPT_READY" && (
+            <div style={{ marginBottom:12, padding:12, background:"rgba(16,185,129,0.08)", borderRadius:10, border:"1px solid rgba(16,185,129,0.15)", display:"flex", gap:10, alignItems:"flex-start" }}>
+              <div style={{ fontSize:20, flexShrink:0 }}>👀</div>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700, color:"#10b981", marginBottom:3 }}>Receipt uploaded — fill in the details</div>
+                <div style={{ fontSize:12, color:"#6b7280", lineHeight:1.6 }}>Look at your receipt and type the amount, merchant and date below. Fields are ready for you.</div>
+              </div>
+            </div>
+          )}
+
+          {/* Success after SMS scan */}
+          {scanMsg && scanMsg !== "RECEIPT_READY" && scanned && (
+            <div style={{ marginBottom:12, padding:12, background: scanOk ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", borderRadius:10, border: scanOk ? "1px solid rgba(16,185,129,0.2)" : "1px solid rgba(239,68,68,0.2)" }}>
+              <div style={{ fontSize:13, color: scanOk ? "#10b981" : "#f87171", fontWeight:700 }}>{scanMsg}</div>
+            </div>
+          )}
+
+                    {/* ── FORM — shown for manual tab always, and after scan for sms/receipt ── */}
+          {showForm && (
+            <>
+              {/* Type */}
+              <label style={styles.fieldLabel}>Type</label>
+              <div style={{ ...styles.typeRow, marginBottom:12 }}>
+                {["debit","credit"].map(t => (
+                  <button key={t} onClick={() => setType(t)} style={{
+                    ...styles.typeBtn,
+                    background: type===t ? (t==="debit"?"rgba(239,68,68,0.15)":"rgba(16,185,129,0.15)") : "rgba(255,255,255,0.04)",
+                    borderColor: type===t ? (t==="debit"?"#ef4444":"#10b981") : "rgba(255,255,255,0.1)",
+                    color: type===t ? (t==="debit"?"#ef4444":"#10b981") : "#6b7280",
+                  }}>
+                    {t === "debit" ? "💸 Spent" : "💰 Income"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Amount */}
+              <label style={styles.fieldLabel}>Amount</label>
+              <div style={{ ...styles.amountRow, marginBottom:12 }}>
+                <span style={styles.currSymbol}>₹</span>
+                <input style={styles.amountInput} type="number" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" />
+              </div>
+
+              {/* Date */}
+              <label style={styles.fieldLabel}>Date</label>
+              <input style={inp} type="date" value={date} onChange={e => setDate(e.target.value)} />
+
+              {/* Merchant */}
+              <label style={styles.fieldLabel}>Merchant / Description</label>
+              <input style={inp} type="text" placeholder="e.g. Swiggy, Salary, Amazon..." value={merchant} onChange={e => setMerchant(e.target.value)} />
+
+              {/* Bank */}
+              <label style={styles.fieldLabel}>Bank</label>
+              <select style={{ ...styles.select, marginBottom:12 }} value={bank} onChange={e => setBank(e.target.value)}>
+                {BANKS.map(b => <option key={b}>{b}</option>)}
+              </select>
+
+              {/* Category — only for debit */}
+              {type === "debit" && (<>
+                <label style={styles.fieldLabel}>Category</label>
+                <div style={{ ...styles.catGrid, marginBottom:12 }}>
+                  {CATEGORY_NAMES.filter(c => c !== "Income").map(c => {
+                    const d = getCategoryData(c);
+                    return (
+                      <button key={c} onClick={() => setCategory(c)} style={{
+                        ...styles.catChip,
+                        background: category===c ? d.color+"25" : "rgba(255,255,255,0.04)",
+                        borderColor: category===c ? d.color : "rgba(255,255,255,0.08)",
+                        color: category===c ? d.color : "#9ca3af",
+                      }}>{d.icon} {c}</button>
+                    );
+                  })}
+                </div>
+              </>)}
+
+              {/* Payment Mode */}
+              <label style={styles.fieldLabel}>Payment Mode</label>
+              <select style={{ ...styles.select, marginBottom:16 }} value={mode} onChange={e => setMode(e.target.value)}>
+                {MODES.map(m => <option key={m}>{m}</option>)}
+              </select>
+
+              <button style={{ ...styles.saveBtn, opacity: saving?0.6:1, marginBottom:24 }} onClick={handleSave} disabled={saving}>
+                {saving ? "Saving..." : "💾 Save Transaction"}
+              </button>
+            </>
+          )}
+
+        </div>{/* end scrollable body */}
       </div>
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────
 // TRANSACTION CARD
@@ -420,9 +1099,11 @@ function ReportsScreen({ transactions, mode, setMode, selectedWeek, setSelectedW
       from = dayjs(customFrom).startOf("day");
       to   = dayjs(customTo).endOf("day");
     }
+    const fromTs = from.valueOf();
+    const toTs   = to.valueOf();
     return transactions.filter(t => {
-      const d = dayjs(t.date);
-      return d.isAfter(from.subtract(1, "ms")) && d.isBefore(to.add(1, "ms"));
+      const ts = new Date(t.date).getTime();
+      return ts >= fromTs && ts <= toTs;
     });
   }, [transactions, mode, selectedWeek, selectedMonth, selectedYear, customFrom, customTo]);
 
@@ -678,9 +1359,11 @@ function ExportScreen({ transactions, onBack, mode, setMode, selectedWeek, setSe
       // "all" — no filter
       return transactions;
     }
+    const fromTs = from.valueOf();
+    const toTs   = to.valueOf();
     return transactions.filter(t => {
-      const d = dayjs(t.date);
-      return d.isAfter(from.subtract(1,"ms")) && d.isBefore(to.add(1,"ms"));
+      const ts = new Date(t.date).getTime();
+      return ts >= fromTs && ts <= toTs;
     });
   }, [transactions, mode, selectedWeek, selectedMonth, selectedYear, customFrom, customTo]);
 
@@ -858,6 +1541,12 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [dbReady, setDbReady] = useState(false);
 
+  // ── PIN state
+  const pinIsSet  = () => localStorage.getItem(PIN_SET_KEY) === "1";
+  const [pinState, setPinState] = useState(() =>
+    pinIsSet() ? "locked" : "setup"   // "setup" | "locked" | "unlocked"
+  );
+
   // Shared report period state — synced between Reports and Export
   const [reportMode,    setReportMode]    = useState("monthly");
   const [reportWeek,    setReportWeek]    = useState(dayjs().startOf("week").format("YYYY-MM-DD"));
@@ -868,6 +1557,17 @@ export default function App() {
 
   useEffect(() => {
     initDB().then(() => { setDbReady(true); loadTxns(); });
+  }, []);
+
+  // ── Auto-lock when app goes to background / phone screen off
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.hidden && pinIsSet()) {
+        setPinState("locked");
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
   const loadTxns = useCallback(async () => {
@@ -881,6 +1581,45 @@ export default function App() {
       <div style={{ fontSize:24, fontWeight:"bold", color:"#e8e4dc" }}>View Ledger</div>
       <div style={{ fontSize:14, color:"#6b7280" }}>Loading...</div>
     </div>
+  );
+
+  // ── Show PIN setup on first launch
+  if (pinState === "setup") return (
+    <PinScreen mode="setup" onSetPin={() => setPinState("unlocked")} onSuccess={() => {}} />
+  );
+
+  // ── Show PIN entry on every launch / after background
+  if (pinState === "locked") return (
+    <PinScreen
+      key="locked"
+      mode="enter"
+      onSuccess={() => setPinState("unlocked")}
+      onSetPin={(action) => {
+        if (action === "change") setPinState("change");
+        if (action === "forgot") setPinState("forgot");
+      }}
+    />
+  );
+
+  // ── Change PIN flow
+  if (pinState === "change") return (
+    <PinScreen key="change" mode="change" onSetPin={() => setPinState("unlocked")} onSuccess={() => {}} />
+  );
+
+  // ── Forgot PIN — secret question recovery
+  if (pinState === "forgot") return (
+    <ForgotPinScreen
+      onRecovered={() => setPinState("unlocked")}
+      onReset={async () => {
+        localStorage.removeItem(PIN_KEY);
+        localStorage.removeItem(PIN_SET_KEY);
+        localStorage.removeItem(SECRET_Q_KEY);
+        localStorage.removeItem(SECRET_A_KEY);
+        await clearAllTransactions();
+        setPinState("setup");
+      }}
+      onCancel={() => setPinState("locked")}
+    />
   );
 
   const tabs = [
@@ -898,7 +1637,13 @@ export default function App() {
           <div style={styles.headerTitle}>View Ledger</div>
           <div style={styles.headerSub}>{dayjs().format("DD MMMM YYYY")}</div>
         </div>
-        <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add</button>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <button onClick={() => setPinState("locked")} title="Lock app"
+            style={{ background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:10, padding:"10px 12px", fontSize:15, cursor:"pointer" }}>
+            🔒
+          </button>
+          <button style={styles.addBtn} onClick={() => setShowAdd(true)}>+ Add</button>
+        </div>
       </div>
 
       {/* Screen */}
@@ -929,7 +1674,7 @@ export default function App() {
       {/* Bottom Nav */}
       <div style={styles.bottomNav}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ ...styles.navBtn, color: tab===t.id ? "#10b981" : "#6b7280" }}>
+          <button key={t.id} onClick={() => { setTab(t.id); loadTxns(); }} style={{ ...styles.navBtn, color: tab===t.id ? "#10b981" : "#6b7280" }}>
             <span style={{ fontSize:20 }}>{t.icon}</span>
             <span style={{ fontSize:10, marginTop:2 }}>{t.label}</span>
           </button>
@@ -1006,7 +1751,7 @@ const styles = {
   tipsCard: { background:"rgba(255,255,255,0.03)", borderRadius:14, padding:16, marginTop:4, border:"1px solid rgba(255,255,255,0.07)" },
 
   modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"flex-end", zIndex:100, backdropFilter:"blur(4px)", flexDirection:"column", justifyContent:"flex-end" },
-  modalSheet: { background:"#13131a", borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid rgba(255,255,255,0.1)", maxHeight:"90vh", overflowY:"auto" },
+  modalSheet: { background:"#13131a", borderRadius:"20px 20px 0 0", padding:0, width:"100%", maxWidth:430, margin:"0 auto", border:"1px solid rgba(255,255,255,0.1)" },
   modalHandle: { width:40, height:4, background:"rgba(255,255,255,0.2)", borderRadius:2, margin:"0 auto 20px" },
   modalTitle: { fontSize:18, fontWeight:"bold", color:"#e8e4dc", marginBottom:0 },
   typeRow: { display:"flex", gap:10, marginBottom:20 },
