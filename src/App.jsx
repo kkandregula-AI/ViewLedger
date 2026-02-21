@@ -19,6 +19,21 @@ const BANKS = ["HDFC Bank","ICICI Bank","SBI","Axis Bank","Kotak Bank","Yes Bank
 const MODES = ["UPI","NEFT","IMPS","Cash","Card","Net Banking","EMI","Cheque","Other"];
 
 // ─────────────────────────────────────────────
+// APP LOGO COMPONENT
+// ─────────────────────────────────────────────
+function AppLogo({ size = 120 }) {
+  return (
+    <img
+      src="/logo.svg"
+      alt="View Ledger"
+      width={size}
+      height={size * (440/400)}
+      style={{ display:"block", objectFit:"contain" }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────
 // FORGOT PIN SCREEN
 // ─────────────────────────────────────────────
 function ForgotPinScreen({ onRecovered, onReset, onCancel }) {
@@ -88,7 +103,9 @@ function ForgotPinScreen({ onRecovered, onReset, onCancel }) {
 
   return (
     <div style={{ position:"fixed", inset:0, background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:9999, padding:28 }}>
-      <div style={{ fontSize:36, marginBottom:12 }}>🔑</div>
+      <div style={{ marginBottom:10 }}>
+        <AppLogo size={90} />
+      </div>
       <div style={{ fontSize:20, fontWeight:700, color:"#e8e4dc", marginBottom:4 }}>Forgot PIN?</div>
 
       {!hasSecret ? (
@@ -305,9 +322,9 @@ function PinScreen({ mode, onSuccess, onSetPin }) {
 
   return (
     <div style={{ position:"fixed", inset:0, background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:9999, padding:32, userSelect:"none" }}>
-      <div style={{ fontSize:44, marginBottom:6 }}>💳</div>
-      <div style={{ fontSize:20, fontWeight:"bold", color:"#e8e4dc", marginBottom:2 }}>View Ledger</div>
-      <div style={{ fontSize:12, color:"#6b7280", marginBottom: mode === "change" ? 20 : 32 }}>Your private finance tracker</div>
+      <div style={{ marginBottom: mode === "change" ? 12 : 20 }}>
+        <AppLogo size={110} />
+      </div>
 
       {/* Change PIN progress bar */}
       {mode === "change" && step !== "secret" && (
@@ -1605,10 +1622,9 @@ export default function App() {
   }, []);
 
   if (!dbReady) return (
-    <div style={{ minHeight:"100vh", background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:12 }}>
-      <div style={{ fontSize:64 }}>💳</div>
-      <div style={{ fontSize:24, fontWeight:"bold", color:"#e8e4dc" }}>View Ledger</div>
-      <div style={{ fontSize:14, color:"#6b7280" }}>Loading...</div>
+    <div style={{ minHeight:"100vh", background:"#0a0a0f", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16 }}>
+      <AppLogo size={130} />
+      <div style={{ fontSize:14, color:"#6b7280", marginTop:4 }}>Loading...</div>
     </div>
   );
 
@@ -1663,8 +1679,13 @@ export default function App() {
       {/* Header */}
       <div style={styles.header}>
         <div>
-          <div style={styles.headerTitle}>View Ledger</div>
-          <div style={styles.headerSub}>{dayjs().format("DD MMMM YYYY")}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <AppLogo size={38} />
+            <div>
+              <div style={styles.headerTitle}>View Ledger</div>
+              <div style={styles.headerSub}>{dayjs().format("DD MMMM YYYY")}</div>
+            </div>
+          </div>
         </div>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
           <button onClick={() => setPinState("locked")} title="Lock app"

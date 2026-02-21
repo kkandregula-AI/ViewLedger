@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 440" width="400" height="440">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a0f"/>
+      <stop offset="100%" style="stop-color:#111118"/>
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10b981"/>
+      <stop offset="100%" style="stop-color:#34d399"/>
+    </linearGradient>
+    <linearGradient id="eyeFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#182f24"/>
+      <stop offset="100%" style="stop-color:#0c1e16"/>
+    </linearGradient>
+    <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#10b981" stop-opacity="0.18"/>
+      <stop offset="100%" style="stop-color:#10b981" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="pupilGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#10b981" stop-opacity="0.35"/>
+      <stop offset="100%" style="stop-color:#10b981" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="lineGlow" x="-20%" y="-200%" width="140%" height="500%">
+      <feGaussianBlur stdDeviation="1.8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="rupeeGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <clipPath id="eyeClip">
+      <path d="M 88,200 Q 144,128 200,126 Q 256,128 312,200 Q 256,272 200,274 Q 144,272 88,200 Z"/>
+    </clipPath>
+    <mask id="irisMask">
+      <circle cx="200" cy="200" r="48" fill="white"/>
+    </mask>
+  </defs>
+
+  <!-- Background -->
+  <rect width="400" height="440" fill="url(#bgGrad)"/>
+
+  <!-- Ambient glow behind eye -->
+  <ellipse cx="200" cy="200" rx="155" ry="98" fill="url(#glowGrad)"/>
+
+  <!-- ── EYE BODY ── -->
+  <path d="M 88,200 Q 144,128 200,126 Q 256,128 312,200 Q 256,272 200,274 Q 144,272 88,200 Z"
+    fill="url(#eyeFill)"
+  />
+
+  <!-- Ledger lines across eye -->
+  <g clip-path="url(#eyeClip)" filter="url(#lineGlow)">
+    <line x1="80" y1="162" x2="320" y2="162" stroke="#10b981" stroke-width="1"   opacity="0.12"/>
+    <line x1="80" y1="175" x2="320" y2="175" stroke="#10b981" stroke-width="1.2" opacity="0.22"/>
+    <line x1="80" y1="188" x2="320" y2="188" stroke="#10b981" stroke-width="1.4" opacity="0.35"/>
+    <line x1="80" y1="201" x2="320" y2="201" stroke="#10b981" stroke-width="1.8" opacity="0.50"/>
+    <line x1="80" y1="214" x2="320" y2="214" stroke="#10b981" stroke-width="1.4" opacity="0.35"/>
+    <line x1="80" y1="227" x2="320" y2="227" stroke="#10b981" stroke-width="1.2" opacity="0.22"/>
+    <line x1="80" y1="240" x2="320" y2="240" stroke="#10b981" stroke-width="1"   opacity="0.12"/>
+    <line x1="252" y1="130" x2="252" y2="270" stroke="#10b981" stroke-width="0.8" opacity="0.18"/>
+  </g>
+
+  <!-- ── EYE OUTLINE ── -->
+  <path d="M 88,200 Q 144,128 200,126 Q 256,128 312,200"
+    fill="none" stroke="url(#emeraldGrad)" stroke-width="2.5"
+    stroke-linecap="round" filter="url(#softGlow)" opacity="0.95"
+  />
+  <path d="M 88,200 Q 144,272 200,274 Q 256,272 312,200"
+    fill="none" stroke="url(#emeraldGrad)" stroke-width="1.8"
+    stroke-linecap="round" opacity="0.65"
+  />
+
+  <!-- Corner points -->
+  <circle cx="88"  cy="200" r="3.5" fill="#10b981" opacity="0.85" filter="url(#softGlow)"/>
+  <circle cx="312" cy="200" r="3.5" fill="#10b981" opacity="0.55"/>
+
+  <!-- ── IRIS ── -->
+  <circle cx="200" cy="200" r="48" fill="#09180f"
+    stroke="url(#emeraldGrad)" stroke-width="2.5" filter="url(#softGlow)"
+  />
+
+  <!-- Ledger lines inside iris -->
+  <g mask="url(#irisMask)">
+    <line x1="152" y1="181" x2="248" y2="181" stroke="#10b981" stroke-width="1.4" opacity="0.30"/>
+    <line x1="152" y1="194" x2="248" y2="194" stroke="#10b981" stroke-width="1.8" opacity="0.50" filter="url(#lineGlow)"/>
+    <line x1="152" y1="207" x2="248" y2="207" stroke="#10b981" stroke-width="2.2" opacity="0.75" filter="url(#lineGlow)"/>
+    <line x1="152" y1="220" x2="248" y2="220" stroke="#10b981" stroke-width="1.8" opacity="0.50" filter="url(#lineGlow)"/>
+    <line x1="152" y1="233" x2="248" y2="233" stroke="#10b981" stroke-width="1.4" opacity="0.28"/>
+  </g>
+
+  <!-- Iris inner ring -->
+  <circle cx="200" cy="200" r="44" fill="none"
+    stroke="rgba(52,211,153,0.22)" stroke-width="1"
+  />
+
+  <!-- ── PUPIL ── -->
+  <!-- Pupil glow background -->
+  <circle cx="200" cy="200" r="26" fill="url(#pupilGlow)"/>
+  <!-- Pupil dark -->
+  <circle cx="200" cy="200" r="22" fill="#040a06"/>
+
+  <!-- ₹ SYMBOL — large, prominent, glowing -->
+  <text x="200" y="209"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="28"
+    font-weight="900"
+    fill="#10b981"
+    text-anchor="middle"
+    filter="url(#rupeeGlow)"
+    opacity="1"
+  >₹</text>
+
+  <!-- Pupil highlight -->
+  <circle cx="209" cy="191" r="5" fill="rgba(255,255,255,0.07)"/>
+  <circle cx="208" cy="190" r="2.8" fill="rgba(255,255,255,0.14)"/>
+
+  <!-- ── APP NAME ── -->
+  <text x="200" y="322"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="26"
+    font-weight="700"
+    letter-spacing="6"
+    fill="#e8e4dc"
+    text-anchor="middle"
+  >VIEW LEDGER</text>
+
+  <!-- ── TAGLINE — clean, readable, spaced well ── -->
+  <!-- Thin rule above tagline -->
+  <line x1="60" y1="340" x2="340" y2="340" stroke="#10b981" stroke-width="0.6" opacity="0.3"/>
+
+  <text x="200" y="362"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="13"
+    font-style="italic"
+    letter-spacing="1.5"
+    fill="#34d399"
+    text-anchor="middle"
+    opacity="0.85"
+  >Private Finance Tracker</text>
+
+  <!-- Thin rule below tagline -->
+  <line x1="60" y1="374" x2="340" y2="374" stroke="#10b981" stroke-width="0.6" opacity="0.3"/>
+
+  <!-- Small emerald dots on rules -->
+  <circle cx="60"  cy="340" r="2" fill="#10b981" opacity="0.5"/>
+  <circle cx="340" cy="340" r="2" fill="#10b981" opacity="0.5"/>
+  <circle cx="60"  cy="374" r="2" fill="#10b981" opacity="0.5"/>
+  <circle cx="340" cy="374" r="2" fill="#10b981" opacity="0.5"/>
+
+</svg>
